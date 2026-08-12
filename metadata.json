@@ -1,0 +1,6 @@
+{
+  "name": "أخبار نوعية — Naw3iya News",
+  "description": "أخبار نوعية — المنصة الإخبارية الذكية الشاملة: الأخبار كما تستحق أن تُقرأ. تجميع تلقائي للأخبار، تغطية شاملة بالذكاء الاصطناعي، ودعم Vercel ومحركات البحث SEO.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

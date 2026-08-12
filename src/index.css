@@ -1,0 +1,129 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary-50: #f0fdf4;
+  --color-primary-100: #dcfce7;
+  --color-primary-500: #10b981;
+  --color-primary-600: #059669;
+  --color-primary-700: #047857;
+  --color-primary-800: #065f46;
+  --color-primary-900: #064e3b;
+  --color-primary-950: #022c22;
+
+  --color-brand-primary: #042f2e; /* Deep Evergreen Editorial Authority */
+  --color-brand-secondary: #0f172a; /* Slate Charcoal */
+  --color-brand-accent: #059669; /* Emerald Green */
+  
+  --color-brand-background: #ffffff; /* Clean Paper White */
+  --color-brand-surface: #f8fafc; /* Crisp Off-White */
+  --color-brand-surface-elevated: #ffffff;
+  
+  --color-brand-text: #0f172a;
+  --color-brand-muted: #64748b;
+  --color-brand-border: #e2e8f0;
+  
+  --color-brand-breaking: #dc2626; /* Crimson Red for Breaking News */
+  --color-brand-success: #059669;
+  --color-brand-warning: #d97706;
+  --color-brand-error: #dc2626;
+  
+  --font-sans: 'Cairo', 'IBM Plex Sans Arabic', system-ui, -apple-system, sans-serif;
+  --font-body: 'IBM Plex Sans Arabic', 'Tajawal', system-ui, sans-serif;
+  --font-heading: 'Cairo', 'Tajawal', sans-serif;
+}
+
+@layer base {
+  :root {
+    --bg-color: #ffffff;
+    --text-color: #0f172a;
+  }
+  
+  .dark {
+    --bg-color: #0b1329;
+    --text-color: #f8fafc;
+    --color-brand-background: #0b1329;
+    --color-brand-surface: #131e3a;
+    --color-brand-surface-elevated: #1e293b;
+    --color-brand-text: #f8fafc;
+    --color-brand-muted: #94a3b8;
+    --color-brand-border: #1e293b;
+  }
+
+  body {
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    font-family: var(--font-body);
+    @apply antialiased selection:bg-emerald-700 selection:text-white;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+    @apply font-bold tracking-tight text-slate-900 leading-tight;
+  }
+}
+
+/* Editorial Typography & Design Tokens Utilities */
+.editorial-headline {
+  font-family: 'Cairo', sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #0f172a;
+}
+
+.editorial-body {
+  font-family: 'IBM Plex Sans Arabic', sans-serif;
+  line-height: 1.8;
+  color: #334155;
+}
+
+.editorial-kicker {
+  font-family: 'Tajawal', sans-serif;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: #047857;
+  text-transform: uppercase;
+}
+
+.editorial-breaking {
+  background-color: #dc2626;
+  color: #ffffff;
+  font-weight: 800;
+}
+
+.editorial-card {
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.editorial-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 4px 12px -2px rgba(15, 23, 42, 0.05);
+}
+
+.editorial-divider {
+  border-bottom: 1px solid #e2e8f0;
+}
+
+/* Custom Editorial Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.03);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.15);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 23, 42, 0.3);
+}

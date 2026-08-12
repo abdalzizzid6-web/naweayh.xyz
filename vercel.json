@@ -1,0 +1,47 @@
+{
+  "version": 2,
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/$1" },
+    { "source": "/sitemap.xml", "destination": "/api/seo/sitemap.xml" },
+    { "source": "/news-sitemap.xml", "destination": "/api/seo/news-sitemap.xml" },
+    { "source": "/rss.xml", "destination": "/api/seo/rss.xml" },
+    { "source": "/feed.xml", "destination": "/api/seo/rss.xml" },
+    { "source": "/breaking-news.xml", "destination": "/api/seo/breaking-news.xml" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/fetch-news",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/seo-refresh",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/trending-calc",
+      "schedule": "0 * * * *"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-XSS-Protection",
+          "value": "1; mode=block"
+        }
+      ]
+    }
+  ]
+}

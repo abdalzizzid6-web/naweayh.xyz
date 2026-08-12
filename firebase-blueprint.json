@@ -1,0 +1,65 @@
+{
+  "projectInfo": {
+    "name": "Naw3iya News",
+    "description": "Enterprise News Intelligence Engine"
+  },
+  "collections": [
+    {
+      "name": "articles",
+      "description": "News articles ingested from various sources",
+      "documentId": "articleId (string)",
+      "fields": [
+        { "name": "title", "type": "string", "description": "The article title" },
+        { "name": "slug", "type": "string", "description": "URL friendly slug" },
+        { "name": "summary", "type": "string", "description": "Short summary of the article" },
+        { "name": "content", "type": "string", "description": "Full content or excerpt" },
+        { "name": "mainImage", "type": "string", "description": "URL to the main image" },
+        { "name": "category", "type": "string", "description": "Category name" },
+        { "name": "publishDate", "type": "timestamp", "description": "Publish date" },
+        { "name": "viewsCount", "type": "number", "description": "Number of views" },
+        { "name": "isBreaking", "type": "boolean", "description": "Is this a breaking news" },
+        { "name": "isTrending", "type": "boolean", "description": "Is this trending" },
+        { "name": "sourceId", "type": "string", "description": "ID of the source" },
+        { "name": "sourceName", "type": "string", "description": "Name of the source" },
+        { "name": "canonicalUrl", "type": "string", "description": "Canonical URL of the article" },
+        { "name": "status", "type": "string", "description": "Status: PENDING, APPROVED, REJECTED, PUBLISHED" }
+      ],
+      "rules": [
+        { "allow": "read", "condition": "true" },
+        { "allow": "write", "condition": "request.auth != null && request.auth.token.role in ['Admin', 'Editor']" }
+      ]
+    },
+    {
+      "name": "sources",
+      "description": "News sources",
+      "documentId": "sourceId (string)",
+      "fields": [
+        { "name": "name", "type": "string" },
+        { "name": "url", "type": "string" },
+        { "name": "rssUrl", "type": "string" },
+        { "name": "status", "type": "string" },
+        { "name": "trustScore", "type": "number" },
+        { "name": "logo", "type": "string" }
+      ],
+      "rules": [
+        { "allow": "read", "condition": "true" },
+        { "allow": "write", "condition": "request.auth != null && request.auth.token.role == 'Admin'" }
+      ]
+    },
+    {
+      "name": "users",
+      "description": "User profiles and preferences",
+      "documentId": "userId (string)",
+      "fields": [
+        { "name": "role", "type": "string" },
+        { "name": "followingSources", "type": "array" },
+        { "name": "followingCategories", "type": "array" },
+        { "name": "savedArticles", "type": "array" }
+      ],
+      "rules": [
+        { "allow": "read, write", "condition": "request.auth != null && request.auth.uid == resource.id" },
+        { "allow": "read, write", "condition": "request.auth != null && request.auth.token.role == 'Admin'" }
+      ]
+    }
+  ]
+}

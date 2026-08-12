@@ -1,0 +1,16 @@
+User-agent: *
+Allow: /
+Allow: /news/
+Allow: /category/
+Allow: /country/
+Allow: /source/
+Allow: /tag/
+
+Disallow: /admin
+Disallow: /admin/
+Disallow: /api/
+Disallow: /auth/
+Disallow: /private/
+
+Sitemap: https://naweayh.xyz/sitemap.xml
+Sitemap: https://naweayh.xyz/news-sitemap.xml
