@@ -3,26 +3,20 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/sitemap.xml", "destination": "/api/seo/sitemap.xml" },
-    { "source": "/news-sitemap.xml", "destination": "/api/seo/news-sitemap.xml" },
-    { "source": "/rss.xml", "destination": "/api/seo/rss.xml" },
-    { "source": "/feed.xml", "destination": "/api/seo/rss.xml" },
-    { "source": "/breaking-news.xml", "destination": "/api/seo/breaking-news.xml" },
+    { "source": "/api/(.*)", "destination": "/api" },
+    { "source": "/sitemap.xml", "destination": "/api" },
+    { "source": "/sitemap-news.xml", "destination": "/api" },
+    { "source": "/news-sitemap.xml", "destination": "/api" },
+    { "source": "/rss.xml", "destination": "/api" },
+    { "source": "/feed.xml", "destination": "/api" },
+    { "source": "/breaking-news.xml", "destination": "/api" },
+    { "source": "/robots.txt", "destination": "/api" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "crons": [
     {
-      "path": "/api/cron/fetch-news",
-      "schedule": "*/10 * * * *"
-    },
-    {
       "path": "/api/cron/seo-refresh",
       "schedule": "0 2 * * *"
-    },
-    {
-      "path": "/api/cron/trending-calc",
-      "schedule": "0 * * * *"
     }
   ],
   "headers": [

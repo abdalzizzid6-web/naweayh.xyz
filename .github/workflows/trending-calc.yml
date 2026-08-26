@@ -1,0 +1,56 @@
+name: Trending & Hot Velocity Calculator (Hourly)
+
+on:
+  schedule:
+    # Runs every hour at minute 0
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+jobs:
+  calculate_trending:
+    name: Trigger Trending Velocity Algorithm
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+
+    steps:
+      - name: Validate Secrets & Trigger Trending Endpoint
+        run: |
+          TARGET_URL="${{ secrets.APP_URL }}"
+          if [ -z "$TARGET_URL" ]; then
+            echo "❌ ERROR: APP_URL secret is not set in GitHub Repository Secrets."
+            echo "Please add APP_URL (e.g. https://your-app.vercel.app) to Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+          TARGET_URL="${TARGET_URL%/}"
+          ENDPOINT="${TARGET_URL}/api/cron/trending-calc"
+          echo "🚀 Triggering Trending Calculation: ${ENDPOINT}"
+
+          AUTH_HEADER=""
+          if [ -n "${{ secrets.CRON_SECRET }}" ]; then
+            AUTH_HEADER="Authorization: Bearer ${{ secrets.CRON_SECRET }}"
+          fi
+
+          HTTP_RESPONSE=$(curl -s -S --retry 2 --retry-delay 5 --max-time 120 \
+            -w "\nHTTP_STATUS:%{http_code}\nTIME_TOTAL:%{time_total}s" \
+            ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
+            -H "User-Agent: GitHub-Actions-TrendingWorker/1.0" \
+            "${ENDPOINT}")
+
+          HTTP_BODY=$(echo "$HTTP_RESPONSE" | sed -e '$d' | sed -e '$d')
+          HTTP_STATUS=$(echo "$HTTP_RESPONSE" | grep "HTTP_STATUS:" | cut -d':' -f2)
+          TIME_TOTAL=$(echo "$HTTP_RESPONSE" | grep "TIME_TOTAL:" | cut -d':' -f2)
+
+          echo "📊 Response Summary:"
+          echo "   HTTP Status: ${HTTP_STATUS}"
+          echo "   Execution Time: ${TIME_TOTAL}"
+          echo "   Response Body:"
+          echo "${HTTP_BODY}"
+
+          if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+            echo "✅ Trending velocity calculated successfully."
+            exit 0
+          else
+            echo "❌ Trending calculation failed with HTTP status: ${HTTP_STATUS}"
+            exit 1
+          fi

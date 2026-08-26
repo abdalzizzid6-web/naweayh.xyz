@@ -91,6 +91,41 @@ const checkAdminRole = (req: Request, res: Response, next: NextFunction) => {
 };
 
 // ==========================================
+// 0.1 CRON AUTHENTICATION MIDDLEWARE
+// ==========================================
+export const validateCronSecret = (req: Request, res: Response, next: NextFunction) => {
+  const cronSecret = process.env.CRON_SECRET;
+  
+  if (cronSecret) {
+    const authHeader = req.headers['authorization'];
+    const xCronHeader = req.headers['x-cron-secret'] as string;
+    const querySecret = req.query['secret'] as string;
+    
+    let token = '';
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7).trim();
+    } else if (xCronHeader) {
+      token = xCronHeader.trim();
+    } else if (querySecret) {
+      token = querySecret.trim();
+    }
+    
+    if (!token || token !== cronSecret) {
+      return res.status(401).json({
+        success: false,
+        code: 'UNAUTHORIZED',
+        message: 'غير مصرح: مفتاح CRON_SECRET غير صحيح أو مفقود (401 Unauthorized)',
+      });
+    }
+  } else {
+    if (process.env.NODE_ENV === 'production') {
+      console.warn('[SECURITY WARNING] CRON_SECRET is not configured in production environment.');
+    }
+  }
+  next();
+};
+
+// ==========================================
 // 1. NEWS ARTICLES ENDPOINTS (/api/v1/news)
 // ==========================================
 
@@ -810,47 +845,66 @@ newsApiRouter.post(['/v1/analytics/track', '/analytics/track'], async (req, res)
 });
 
 // ==========================================
-// 6. VERCEL CRON JOBS & SEO FEEDS
+// 6. CRON JOBS (PROTECTED WITH CRON_SECRET) & SEO FEEDS
 // ==========================================
 
-newsApiRouter.get('/cron/fetch-news', async (_req, res) => {
+newsApiRouter.get(['/cron/fetch-news', '/v1/cron/fetch-news'], validateCronSecret, async (_req, res) => {
   try {
-    const dbRes = await pool.query("SELECT * FROM news_sources WHERE enabled = true AND status = 'Active'");
-    const activeSources = dbRes.rows;
+    const activeSources = await pgSourcesRepository.getActiveSources();
     let fetchedCount = 0;
+    const batchSize = Math.min(activeSources.length, 10);
+    const results: any[] = [];
     
-    for (const source of activeSources.slice(0, 5)) {
-      const log = await newsIngestionService.fetchAndIngestSource({
-        id: source.id,
-        name: source.name,
-        nameArabic: source.name_arabic,
-        url: source.url,
-        feedUrl: source.feed_url || source.url,
-        logo: source.logo,
-        country: source.country,
-        language: source.language,
-        category: source.category,
-        type: source.type,
-        enabled: source.enabled,
-        priority: source.priority,
-        trustScore: source.trust_score,
-        fetchInterval: source.fetch_interval || 15,
-      });
-      if (log.newArticlesCount > 0) fetchedCount += log.newArticlesCount;
+    for (const source of activeSources.slice(0, batchSize)) {
+      try {
+        const log = await newsIngestionService.fetchAndIngestSource(source);
+        if (log.newArticlesCount > 0) fetchedCount += log.newArticlesCount;
+        results.push({ source: source.nameArabic || source.name, newArticles: log.newArticlesCount, status: log.status });
+      } catch (err: any) {
+        results.push({ source: source.nameArabic || source.name, status: 'FAILED', error: err.message });
+      }
     }
-    res.json({ success: true, message: 'Vercel Cron: Ingestion finished', newArticlesCount: fetchedCount });
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      message: 'Ingestion cron cycle completed',
+      newArticlesCount: fetchedCount,
+      sourcesProcessed: results.length,
+      details: results,
+    });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-newsApiRouter.get('/cron/seo-refresh', async (_req, res) => {
-  res.json({ success: true, timestamp: new Date().toISOString(), message: 'SEO sitemaps refreshed' });
+newsApiRouter.get(['/cron/seo-refresh', '/v1/cron/seo-refresh'], validateCronSecret, async (_req, res) => {
+  try {
+    const master = seoEngineService.generateMasterSitemapXML();
+    const news = seoEngineService.generateNewsSitemapXML();
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      message: 'SEO sitemaps and indexes refreshed successfully',
+      masterSitemapLength: master.length,
+      newsSitemapLength: news.length,
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
-newsApiRouter.get('/cron/trending-calc', async (_req, res) => {
-  const trending = newsService.getTrendingNews();
-  res.json({ success: true, count: trending.length, message: 'Trending velocity algorithm updated' });
+newsApiRouter.get(['/cron/trending-calc', '/v1/cron/trending-calc'], validateCronSecret, async (_req, res) => {
+  try {
+    const trending = newsService.getTrendingNews();
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      count: trending.length,
+      message: 'Trending velocity algorithm and trending news calculated successfully',
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 newsApiRouter.get('/seo/sitemap.xml', (_req, res) => {

@@ -6,3 +6,9 @@ coverage/
 *.log
 .env*
 !.env.example
+local-pg-data/
+.pglite/
+.vercel/
+*.local
+temp/
+tmp/

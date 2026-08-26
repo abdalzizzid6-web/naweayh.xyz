@@ -7,10 +7,6 @@ dotenv.config();
 
 const connectionString = process.env.DATABASE_URL;
 
-if (process.env.NODE_ENV === 'production' && !connectionString) {
-  throw new Error('CRITICAL: DATABASE_URL environment variable is required in production. PGlite fallback is disabled.');
-}
-
 // We use a custom pool interface to support both real pg Pool and PGlite
 export interface IDatabasePool {
   query(text: string, params?: any[]): Promise<any>;
@@ -20,10 +16,15 @@ export interface IDatabasePool {
 let pool: IDatabasePool;
 let isPglite = false;
 
+const isServerless = !!process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME !== undefined;
+
 if (connectionString) {
   const pgPool = new Pool({
     connectionString,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+    ssl: (process.env.NODE_ENV === 'production' || connectionString.includes('sslmode=require') || connectionString.includes('neon.tech') || connectionString.includes('supabase.co')) ? { rejectUnauthorized: false } : false,
+    max: isServerless ? 3 : 10,
+    idleTimeoutMillis: isServerless ? 5000 : 30000,
+    connectionTimeoutMillis: 5000,
   });
   
   pool = {
@@ -31,10 +32,10 @@ if (connectionString) {
     connect: async () => pgPool.connect(),
   };
 } else {
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error('CRITICAL: DATABASE_URL is required in production.');
+  if (process.env.NODE_ENV === 'production' && !isServerless) {
+    console.warn('WARNING: DATABASE_URL is not set in production. Using PGlite in-memory fallback.');
   }
-  console.log('Using PGlite (Local PostgreSQL) since DATABASE_URL is missing (Development/Test Mode only).');
+  console.log('Using PGlite (Local PostgreSQL) since DATABASE_URL is missing (Development/Test/Fallback Mode).');
   isPglite = true;
   const pglite = new PGlite();
   
