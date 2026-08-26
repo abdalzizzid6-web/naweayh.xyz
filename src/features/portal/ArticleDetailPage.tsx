@@ -38,6 +38,7 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [scrollProgress, setScrollProgress] = useState(0);
 
   useEffect(() => {
     // Record view & history
@@ -48,6 +49,19 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
       setIsBookmarked(found.isBookmarked || false);
     }
   }, [slug]);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      const totalHeight = document.documentElement.scrollHeight - window.innerHeight;
+      if (totalHeight > 0) {
+        const currentProgress = (window.scrollY / totalHeight) * 100;
+        setScrollProgress(Math.min(100, Math.max(0, currentProgress)));
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -115,7 +129,15 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
     .data.filter((a) => a.id !== article.id);
 
   return (
-    <article dir="rtl" className="max-w-4xl mx-auto space-y-8 pb-20 font-sans">
+    <article dir="rtl" className="max-w-4xl mx-auto space-y-8 pb-20 font-sans relative">
+      
+      {/* Scroll Reading Progress Bar at top of viewport */}
+      <div className="fixed top-0 left-0 right-0 h-1.5 bg-slate-200/60 dark:bg-slate-800/60 z-50 backdrop-blur-xs">
+        <div
+          className="h-full bg-gradient-to-l from-indigo-500 via-indigo-600 to-sky-500 transition-all duration-75 shadow-xs"
+          style={{ width: `${scrollProgress}%` }}
+        />
+      </div>
       
       {/* Top Breadcrumb & Navigation */}
       <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
