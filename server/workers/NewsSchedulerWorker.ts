@@ -29,7 +29,7 @@ export class NewsSchedulerWorker {
     console.log('[NewsSchedulerWorker] Stopped.');
   }
 
-  private async runIngestionCycle() {
+  public async runIngestionCycle() {
     try {
       console.log('[NewsSchedulerWorker] Running scheduled news ingestion cycle...');
       const res = await pool.query('SELECT * FROM news_sources WHERE enabled = true');

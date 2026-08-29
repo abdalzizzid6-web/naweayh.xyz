@@ -133,7 +133,7 @@ export const validateCronSecret = (req: Request, res: Response, next: NextFuncti
 
 // GET /api/v1/news - Paginated, filtered, sorted articles
 // Helper to map DB row to standard NewsArticle domain model
-function mapDbRowToArticle(row: any): any {
+export function mapDbRowToArticle(row: any): any {
   const paragraphs = (row.formatted_body || row.content_html || row.content || row.summary || '')
     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
     .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
@@ -205,8 +205,8 @@ function mapDbRowToArticle(row: any): any {
     sources: [
       {
         id: String(row.source_id || 1),
-        name: row.source_name || 'مصدر إخباري موثوق',
-        logo: row.source_logo || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=120&q=80',
+        name: row.source_name || row.sourceName || row.sourceNameArabic || 'مصدر إخباري موثوق',
+        logo: row.source_logo || row.sourceLogo || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=120&q=80',
         url: row.source_url || '',
         publishedAt: row.published_at ? new Date(row.published_at).toISOString() : new Date().toISOString(),
         reliabilityScore: row.source_trust || 95,
@@ -254,7 +254,7 @@ newsApiRouter.get(['/v1/news', '/news'], async (req, res) => {
     try {
       let countQuery = `SELECT COUNT(*) as total FROM news_articles a WHERE 1=1`;
       let query = `
-        SELECT a.*, s.name_arabic as source_name, s.logo as source_logo, s.url as source_url, s.trust_score as source_trust
+        SELECT a.*, COALESCE(s.name_arabic, s.name) as source_name, s.logo as source_logo, s.rss_url as source_url
         FROM news_articles a
         LEFT JOIN news_sources s ON a.source_id = s.id
         WHERE 1=1
@@ -305,6 +305,7 @@ newsApiRouter.get(['/v1/news', '/news'], async (req, res) => {
         });
       }
     } catch (dbErr) {
+      console.error('[GET /news DB Error]:', dbErr);
       // Fallback to domain repository
     }
 

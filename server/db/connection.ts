@@ -2,6 +2,7 @@ import { Pool } from 'pg';
 import dotenv from 'dotenv';
 import { PGlite } from '@electric-sql/pglite';
 import { ENTERPRISE_SOURCE_CATALOG } from './enterpriseSourcesSeed';
+import { INITIAL_PRODUCTION_ARTICLES } from './initialArticlesSeed';
 
 dotenv.config();
 
@@ -181,6 +182,54 @@ export async function initDb() {
       );
     }
     console.log(`Synced ${ENTERPRISE_SOURCE_CATALOG.length} enterprise news sources into database.`);
+
+    // Seed starter articles if empty
+    const articlesCountRes = await pool.query('SELECT COUNT(*) as count FROM news_articles');
+    const existingCount = parseInt(articlesCountRes.rows[0]?.count || '0', 10);
+    if (existingCount === 0) {
+      console.log('Seeding initial production articles...');
+      for (const art of INITIAL_PRODUCTION_ARTICLES) {
+        await pool.query(
+          `INSERT INTO news_articles (
+            title, slug, summary, content, formatted_body, content_html, content_text, excerpt, cover_image_url,
+            author, category, country, language, canonical_url,
+            content_classification, content_origin, content_status, content_source, content_quality_score, word_count, paragraph_count,
+            is_full_content_available, trust_score, reading_time_minutes, is_breaking, is_trending, published_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
+          ON CONFLICT (slug) DO NOTHING`,
+          [
+            art.title,
+            art.slug,
+            art.summary,
+            art.content,
+            `<p>${art.content}</p>`,
+            `<p>${art.content}</p>`,
+            art.content,
+            art.summary,
+            art.coverImageUrl,
+            art.author,
+            art.category,
+            art.country,
+            'ar',
+            `https://naweayh.xyz/news/${art.slug}`,
+            art.contentClassification,
+            'FULL_FEED',
+            art.contentStatus,
+            'editor',
+            95,
+            art.content.split(' ').length,
+            2,
+            true,
+            95,
+            art.readingTimeMinutes,
+            art.isBreaking,
+            art.isTrending,
+            art.publishedAt,
+          ]
+        );
+      }
+      console.log(`Seeded ${INITIAL_PRODUCTION_ARTICLES.length} production articles.`);
+    }
   } catch (error) {
     console.error('Failed to initialize database schema:', error);
   }

@@ -31,7 +31,17 @@ export const SEODashboardPanel: React.FC = () => {
   const articles = articlesRepository.getAll();
   const [selectedArticleId, setSelectedArticleId] = useState<string>(articles[0]?.id || '');
   const [activeTab, setActiveTab] = useState<'AUDIT' | 'SITEMAPS' | 'SCHEMAS' | 'PREVIEWS' | 'AMP' | 'VITALS'>('AUDIT');
-  const [activeXmlType, setActiveXmlType] = useState<'NEWS_SITEMAP' | 'IMAGE_SITEMAP' | 'VIDEO_SITEMAP' | 'RSS' | 'ROBOTS'>('NEWS_SITEMAP');
+  const [activeXmlType, setActiveXmlType] = useState<
+    | 'MASTER_SITEMAP'
+    | 'NEWS_SITEMAP'
+    | 'PAGES_SITEMAP'
+    | 'CATEGORIES_SITEMAP'
+    | 'SOURCES_SITEMAP'
+    | 'IMAGE_SITEMAP'
+    | 'VIDEO_SITEMAP'
+    | 'RSS'
+    | 'ROBOTS'
+  >('MASTER_SITEMAP');
   const [copiedStatus, setCopiedStatus] = useState<boolean>(false);
 
   const currentArticle = articles.find((a) => a.id === selectedArticleId) || articles[0];
@@ -51,8 +61,16 @@ export const SEODashboardPanel: React.FC = () => {
   // Selected XML Output
   const getXmlContent = () => {
     switch (activeXmlType) {
+      case 'MASTER_SITEMAP':
+        return seoEngineService.generateMasterSitemapXML();
       case 'NEWS_SITEMAP':
         return seoEngineService.generateNewsSitemapXML();
+      case 'PAGES_SITEMAP':
+        return seoEngineService.generatePagesSitemapXML();
+      case 'CATEGORIES_SITEMAP':
+        return seoEngineService.generateCategoriesSitemapXML();
+      case 'SOURCES_SITEMAP':
+        return seoEngineService.generateSourcesSitemapXML();
       case 'IMAGE_SITEMAP':
         return seoEngineService.generateImageSitemapXML();
       case 'VIDEO_SITEMAP':
@@ -295,8 +313,18 @@ export const SEODashboardPanel: React.FC = () => {
           {/* Sub Tab Switcher for XML files */}
           <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
             <button
+              onClick={() => setActiveXmlType('MASTER_SITEMAP')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 ${
+                activeXmlType === 'MASTER_SITEMAP'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
+            >
+              sitemap.xml (الفهرس الشامل)
+            </button>
+            <button
               onClick={() => setActiveXmlType('NEWS_SITEMAP')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 ${
                 activeXmlType === 'NEWS_SITEMAP'
                   ? 'bg-indigo-600 text-white'
                   : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
@@ -305,8 +333,38 @@ export const SEODashboardPanel: React.FC = () => {
               sitemap-news.xml (أخبار جوجل)
             </button>
             <button
+              onClick={() => setActiveXmlType('PAGES_SITEMAP')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 ${
+                activeXmlType === 'PAGES_SITEMAP'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
+            >
+              sitemap-pages.xml (الصفحات)
+            </button>
+            <button
+              onClick={() => setActiveXmlType('CATEGORIES_SITEMAP')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 ${
+                activeXmlType === 'CATEGORIES_SITEMAP'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
+            >
+              sitemap-categories.xml (الأقسام)
+            </button>
+            <button
+              onClick={() => setActiveXmlType('SOURCES_SITEMAP')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 ${
+                activeXmlType === 'SOURCES_SITEMAP'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
+            >
+              sitemap-sources.xml (المصادر)
+            </button>
+            <button
               onClick={() => setActiveXmlType('IMAGE_SITEMAP')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 ${
                 activeXmlType === 'IMAGE_SITEMAP'
                   ? 'bg-indigo-600 text-white'
                   : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
@@ -316,7 +374,7 @@ export const SEODashboardPanel: React.FC = () => {
             </button>
             <button
               onClick={() => setActiveXmlType('VIDEO_SITEMAP')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 ${
                 activeXmlType === 'VIDEO_SITEMAP'
                   ? 'bg-indigo-600 text-white'
                   : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
@@ -326,7 +384,7 @@ export const SEODashboardPanel: React.FC = () => {
             </button>
             <button
               onClick={() => setActiveXmlType('RSS')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 ${
                 activeXmlType === 'RSS'
                   ? 'bg-indigo-600 text-white'
                   : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
@@ -336,7 +394,7 @@ export const SEODashboardPanel: React.FC = () => {
             </button>
             <button
               onClick={() => setActiveXmlType('ROBOTS')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 ${
                 activeXmlType === 'ROBOTS'
                   ? 'bg-indigo-600 text-white'
                   : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
@@ -383,7 +441,7 @@ export const SEODashboardPanel: React.FC = () => {
                 2. مخطط فتات الخبز BreadcrumbList Schema:
               </span>
               <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 font-mono text-[11px] text-amber-400 overflow-x-auto max-h-80">
-                <pre>{JSON.stringify(seoEngineService.generateBreadcrumbSchema(currentArticle), null, 2)}</pre>
+                <pre>{JSON.stringify(seoEngineService.generateArticleBreadcrumbSchema(currentArticle), null, 2)}</pre>
               </div>
             </div>
           </div>

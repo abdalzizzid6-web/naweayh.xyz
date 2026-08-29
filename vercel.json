@@ -2,10 +2,28 @@
   "version": 2,
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "redirects": [
+    {
+      "source": "/(.*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "www.naweayh.xyz"
+        }
+      ],
+      "destination": "https://naweayh.xyz/$1",
+      "permanent": true
+    }
+  ],
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api" },
     { "source": "/sitemap.xml", "destination": "/api" },
     { "source": "/sitemap-news.xml", "destination": "/api" },
+    { "source": "/sitemap-pages.xml", "destination": "/api" },
+    { "source": "/sitemap-categories.xml", "destination": "/api" },
+    { "source": "/sitemap-sources.xml", "destination": "/api" },
+    { "source": "/sitemap-images.xml", "destination": "/api" },
+    { "source": "/sitemap-videos.xml", "destination": "/api" },
     { "source": "/news-sitemap.xml", "destination": "/api" },
     { "source": "/rss.xml", "destination": "/api" },
     { "source": "/feed.xml", "destination": "/api" },
@@ -39,3 +57,4 @@
     }
   ]
 }
+

@@ -5,6 +5,8 @@ import { storyClusteringService } from './StoryClusteringService';
 import { contentExtractorService } from './ContentExtractorService';
 import { sourceDiscoveryEngine } from './SourceDiscoveryEngine';
 import { cacheService } from './CacheService';
+import { articlesRepository } from '../../src/repositories/articlesRepository';
+import { mapDbRowToArticle } from '../api/newsRouter';
 
 // Prevent regional intermediate SSL certificate errors from blocking news ingestion
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
@@ -413,7 +415,7 @@ export class NewsIngestionService {
               is_full_content_available = EXCLUDED.is_full_content_available,
               word_count = EXCLUDED.word_count,
               paragraph_count = EXCLUDED.paragraph_count
-            RETURNING id`,
+            RETURNING *`,
             [
               articleDto.title,
               articleDto.slug,
@@ -448,7 +450,19 @@ export class NewsIngestionService {
 
           if (insertRes.rowCount && insertRes.rowCount > 0) {
             newArticlesCount++;
-            const newArticleId = insertRes.rows[0].id;
+            const newArticleRow = insertRes.rows[0];
+            const newArticleId = newArticleRow.id;
+
+            try {
+              const mapped = mapDbRowToArticle({
+                ...newArticleRow,
+                source_name: source.nameArabic || source.name,
+                source_logo: source.logo,
+              });
+              if (!articlesRepository.getById(mapped.id)) {
+                articlesRepository.add(mapped);
+              }
+            } catch {}
 
             try {
               await storyClusteringService.processArticleForClustering({

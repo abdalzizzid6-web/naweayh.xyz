@@ -16,14 +16,33 @@ import { SEODashboardPanel } from './features/seo/SEODashboardPanel';
 import { SEOHead } from './seo-engine/SEOHead';
 
 function AppContent() {
-  const { activeTab, setActiveTab, currentUser, handleRoleChange, articleSlug, storySlug, navigate } = useApp();
+  const {
+    activeTab,
+    setActiveTab,
+    currentUser,
+    handleRoleChange,
+    articleSlug,
+    storySlug,
+    categorySlug,
+    sourceSlug,
+    searchQuery,
+    isNotFound,
+    navigate,
+  } = useApp();
 
   const portalTabs = ['portal', 'latest', 'topics', 'my_feed', 'saved', 'yemen', 'arab', 'world', 'business', 'tech', 'sports', 'video', 'live'];
   const isPortalTab = portalTabs.includes(activeTab);
 
   const portalContent = (
     <>
-      <SEOHead />
+      {!articleSlug && (
+        <SEOHead
+          category={categorySlug || undefined}
+          source={sourceSlug || undefined}
+          searchQuery={searchQuery !== null ? searchQuery : undefined}
+          is404={isNotFound}
+        />
+      )}
       {storySlug ? (
         <StoryDetailPage
           slug={storySlug}

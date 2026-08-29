@@ -1,13 +1,84 @@
 import express, { Express } from 'express';
-import { newsApiRouter } from './api/newsRouter';
+import { newsApiRouter, mapDbRowToArticle } from './api/newsRouter';
 import { storiesApiRouter } from './api/storiesRouter';
 import { aiPipelineService } from './services/AIPipelineService';
 import { seoEngineService } from '../src/seo-engine/SEOEngineService';
 import { articlesRepository } from '../src/repositories/articlesRepository';
+import { sourcesRepository } from '../src/repositories/sourcesRepository';
 import { pool } from './db/connection';
+import { newsSchedulerWorker } from './workers/NewsSchedulerWorker';
+
+export async function syncDatabaseArticlesToRepository(): Promise<number> {
+  try {
+    const sourcesRes = await pool.query(`SELECT * FROM news_sources ORDER BY id ASC`);
+    if (sourcesRes.rows && sourcesRes.rows.length > 0) {
+      for (const row of sourcesRes.rows) {
+        if (!sourcesRepository.getById(String(row.id))) {
+          sourcesRepository.add({
+            id: String(row.id),
+            name: row.name_arabic || row.name,
+            logo: row.logo || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=100&q=80',
+            url: row.rss_url || row.website_url || '',
+            type: (row.protocol === 'GOOGLE_NEWS' ? 'Google_News' : row.protocol === 'REUTERS' ? 'Reuters' : 'RSS') as any,
+            category: row.category || 'عام',
+            country: row.country || 'اليمن',
+            language: row.language || 'ar',
+            priority: (row.priority || 'Medium') as any,
+            reliabilityRating: row.reliability_score ? Math.min(5, Math.ceil(row.reliability_score / 20)) : 5,
+            fetchFrequencyMinutes: row.fetch_frequency_minutes || 5,
+            status: row.status === 'Active' || row.status === 'active' ? 'Active' : 'Active',
+            lastFetchedAt: row.last_fetched_at ? new Date(row.last_fetched_at).toISOString() : new Date().toISOString(),
+            articlesCountToday: row.articles_count_today || 0,
+          });
+        }
+      }
+    }
+
+    let res = await pool.query(`
+      SELECT a.*, s.name as "sourceName", s.name_arabic as "sourceNameArabic", s.logo as "sourceLogo", s.country as "sourceCountry"
+      FROM news_articles a
+      LEFT JOIN news_sources s ON a.source_id = s.id
+      ORDER BY a.published_at DESC
+      LIMIT 200
+    `);
+
+    if (!res.rows || res.rows.length === 0) {
+      newsSchedulerWorker.runIngestionCycle().catch(console.error);
+    }
+
+    if (res.rows && res.rows.length > 0) {
+      for (const row of res.rows) {
+        const article = mapDbRowToArticle(row);
+        if (!articlesRepository.getById(article.id) && !articlesRepository.getBySlug(article.slug)) {
+          articlesRepository.add(article);
+        }
+      }
+      return res.rows.length;
+    }
+  } catch (err) {
+    console.error('[SEO Sync] Error loading DB articles:', err);
+  }
+  return 0;
+}
 
 export function createExpressApp(): Express {
   const app = express();
+
+  // Prime repository with latest articles on boot
+  syncDatabaseArticlesToRepository().catch(() => {});
+
+  // Canonical Domain & Protocol Enforcement (https://naweayh.xyz)
+  app.use((req, res, next) => {
+    const host = req.headers.host || '';
+    const isWww = host.startsWith('www.');
+    const proto = req.headers['x-forwarded-proto'] || req.protocol;
+
+    if (isWww || (proto === 'http' && (host.includes('naweayh.xyz') || host.includes('localhost') === false))) {
+      const cleanHost = host.replace(/^www\./, '');
+      return res.redirect(301, `https://${cleanHost || 'naweayh.xyz'}${req.originalUrl}`);
+    }
+    next();
+  });
 
   // Basic Middleware
   app.use(express.json({ limit: '10mb' }));
@@ -90,27 +161,49 @@ export function createExpressApp(): Express {
   });
 
   // XML & SEO Sitemaps (Both root and /api/seo paths supported)
-  const serveMasterSitemap = (_req: express.Request, res: express.Response) => {
+  const serveMasterSitemap = async (_req: express.Request, res: express.Response) => {
+    if (articlesRepository.getAll().length === 0) await syncDatabaseArticlesToRepository();
     res.header('Content-Type', 'application/xml; charset=utf-8');
     res.send(seoEngineService.generateMasterSitemapXML());
   };
 
-  const serveNewsSitemap = (_req: express.Request, res: express.Response) => {
+  const serveNewsSitemap = async (_req: express.Request, res: express.Response) => {
+    if (articlesRepository.getAll().length === 0) await syncDatabaseArticlesToRepository();
     res.header('Content-Type', 'application/xml; charset=utf-8');
     res.send(seoEngineService.generateNewsSitemapXML());
   };
 
-  const serveImageSitemap = (_req: express.Request, res: express.Response) => {
+  const servePagesSitemap = (_req: express.Request, res: express.Response) => {
+    res.header('Content-Type', 'application/xml; charset=utf-8');
+    res.send(seoEngineService.generatePagesSitemapXML());
+  };
+
+  const serveCategoriesSitemap = async (_req: express.Request, res: express.Response) => {
+    if (articlesRepository.getAll().length === 0) await syncDatabaseArticlesToRepository();
+    res.header('Content-Type', 'application/xml; charset=utf-8');
+    res.send(seoEngineService.generateCategoriesSitemapXML());
+  };
+
+  const serveSourcesSitemap = async (_req: express.Request, res: express.Response) => {
+    if (articlesRepository.getAll().length === 0) await syncDatabaseArticlesToRepository();
+    res.header('Content-Type', 'application/xml; charset=utf-8');
+    res.send(seoEngineService.generateSourcesSitemapXML());
+  };
+
+  const serveImageSitemap = async (_req: express.Request, res: express.Response) => {
+    if (articlesRepository.getAll().length === 0) await syncDatabaseArticlesToRepository();
     res.header('Content-Type', 'application/xml; charset=utf-8');
     res.send(seoEngineService.generateImageSitemapXML());
   };
 
-  const serveVideoSitemap = (_req: express.Request, res: express.Response) => {
+  const serveVideoSitemap = async (_req: express.Request, res: express.Response) => {
+    if (articlesRepository.getAll().length === 0) await syncDatabaseArticlesToRepository();
     res.header('Content-Type', 'application/xml; charset=utf-8');
     res.send(seoEngineService.generateVideoSitemapXML());
   };
 
-  const serveRSS = (_req: express.Request, res: express.Response) => {
+  const serveRSS = async (_req: express.Request, res: express.Response) => {
+    if (articlesRepository.getAll().length === 0) await syncDatabaseArticlesToRepository();
     res.header('Content-Type', 'application/rss+xml; charset=utf-8');
     res.send(seoEngineService.generateRSSFeedXML());
   };
@@ -123,6 +216,9 @@ export function createExpressApp(): Express {
   // Root level SEO routes
   app.get('/sitemap.xml', serveMasterSitemap);
   app.get('/sitemap-news.xml', serveNewsSitemap);
+  app.get('/sitemap-pages.xml', servePagesSitemap);
+  app.get('/sitemap-categories.xml', serveCategoriesSitemap);
+  app.get('/sitemap-sources.xml', serveSourcesSitemap);
   app.get('/sitemap-images.xml', serveImageSitemap);
   app.get('/sitemap-videos.xml', serveVideoSitemap);
   app.get('/rss.xml', serveRSS);

@@ -21,6 +21,21 @@ export class PgArticlesRepository {
   }
 
   /**
+   * Fetch single article by slug or id from PostgreSQL
+   */
+  public async getArticleBySlugOrId(slugOrId: string): Promise<any | null> {
+    const res = await pool.query(
+      `SELECT a.*, s.name as "sourceName", s.name_arabic as "sourceNameArabic", s.logo as "sourceLogo", s.country as "sourceCountry"
+       FROM news_articles a
+       LEFT JOIN news_sources s ON a.source_id = s.id
+       WHERE a.slug = $1 OR a.id::text = $1
+       LIMIT 1`,
+      [slugOrId]
+    );
+    return res.rows[0] || null;
+  }
+
+  /**
    * Cursor-based pagination (NO OFFSET) for high-performance scale
    */
   public async getLatestArticlesCursor(params: {

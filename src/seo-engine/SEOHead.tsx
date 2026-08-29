@@ -1,16 +1,49 @@
 import React, { useEffect } from 'react';
 import { NewsArticle } from '../core/domain/types';
-import { seoEngineService } from './SEOEngineService';
+import { seoEngineService, SEOMetaOutput } from './SEOEngineService';
 
 interface SEOHeadProps {
   article?: NewsArticle;
+  category?: string;
+  source?: string;
+  searchQuery?: string;
+  is404?: boolean;
 }
 
-export const SEOHead: React.FC<SEOHeadProps> = ({ article }) => {
+export const SEOHead: React.FC<SEOHeadProps> = ({
+  article,
+  category,
+  source,
+  searchQuery,
+  is404,
+}) => {
   useEffect(() => {
-    const metaTags = seoEngineService.generateMetaTags(article);
+    let metaTags: SEOMetaOutput;
+    const schemas: object[] = [];
 
-    // 1. Update Title
+    if (is404) {
+      metaTags = seoEngineService.generate404MetaTags();
+    } else if (article) {
+      metaTags = seoEngineService.generateMetaTags(article);
+      schemas.push(seoEngineService.generateNewsArticleSchema(article));
+      schemas.push(seoEngineService.generateArticleBreadcrumbSchema(article));
+    } else if (category) {
+      metaTags = seoEngineService.generateCategoryMetaTags(category);
+      schemas.push(seoEngineService.generateCategoryBreadcrumbSchema(category));
+      schemas.push(seoEngineService.generateWebSiteSchema());
+    } else if (source) {
+      metaTags = seoEngineService.generateSourceMetaTags(source);
+      schemas.push(seoEngineService.generateSourceBreadcrumbSchema(source));
+      schemas.push(seoEngineService.generateWebSiteSchema());
+    } else if (searchQuery !== undefined) {
+      metaTags = seoEngineService.generateSearchMetaTags(searchQuery);
+    } else {
+      metaTags = seoEngineService.generateMetaTags();
+      schemas.push(seoEngineService.generateWebSiteSchema());
+      schemas.push(seoEngineService.generateOrganizationSchema());
+    }
+
+    // 1. Update Document Title
     document.title = metaTags.title;
 
     // Helper to update or create meta tag
@@ -39,6 +72,7 @@ export const SEOHead: React.FC<SEOHeadProps> = ({ article }) => {
     // 2. Set Basic Meta Tags
     setMetaTag('description', metaTags.description);
     setMetaTag('keywords', metaTags.keywords);
+    setMetaTag('robots', metaTags.robots);
     setCanonical(metaTags.canonicalUrl);
 
     // 3. Set Open Graph Tags
@@ -47,15 +81,28 @@ export const SEOHead: React.FC<SEOHeadProps> = ({ article }) => {
     setMetaTag('og:description', metaTags.ogDescription, true);
     setMetaTag('og:image', metaTags.ogImage, true);
     setMetaTag('og:url', metaTags.canonicalUrl, true);
-    setMetaTag('og:site_name', 'أخبار نوعية — Naw3iya News', true);
-    setMetaTag('og:locale', 'ar_SA', true);
+    setMetaTag('og:site_name', metaTags.ogSiteName, true);
+    setMetaTag('og:locale', metaTags.ogLocale, true);
+
+    if (metaTags.articlePublishTime) {
+      setMetaTag('article:published_time', metaTags.articlePublishTime, true);
+    }
+    if (metaTags.articleModifiedTime) {
+      setMetaTag('article:modified_time', metaTags.articleModifiedTime, true);
+    }
+    if (metaTags.articleSection) {
+      setMetaTag('article:section', metaTags.articleSection, true);
+    }
+    if (metaTags.articleAuthor) {
+      setMetaTag('article:author', metaTags.articleAuthor, true);
+    }
 
     // 4. Set Twitter Card Tags
     setMetaTag('twitter:card', metaTags.twitterCard);
-    setMetaTag('twitter:site', '@Naw3iyaNews');
-    setMetaTag('twitter:title', metaTags.ogTitle);
-    setMetaTag('twitter:description', metaTags.ogDescription);
-    setMetaTag('twitter:image', metaTags.ogImage);
+    setMetaTag('twitter:site', metaTags.twitterSite);
+    setMetaTag('twitter:title', metaTags.twitterTitle);
+    setMetaTag('twitter:description', metaTags.twitterDescription);
+    setMetaTag('twitter:image', metaTags.twitterImage);
 
     // 5. Inject Schema.org JSON-LD
     let schemaScript = document.getElementById('schema-json-ld');
@@ -66,15 +113,9 @@ export const SEOHead: React.FC<SEOHeadProps> = ({ article }) => {
       document.head.appendChild(schemaScript);
     }
 
-    if (article) {
-      const newsArticleSchema = seoEngineService.generateNewsArticleSchema(article);
-      const breadcrumbSchema = seoEngineService.generateBreadcrumbSchema(article);
-      schemaScript.textContent = JSON.stringify([newsArticleSchema, breadcrumbSchema]);
-    } else {
-      const websiteSchema = seoEngineService.generateWebSiteSchema();
-      schemaScript.textContent = JSON.stringify(websiteSchema);
-    }
-  }, [article]);
+    schemaScript.textContent = JSON.stringify(schemas.length === 1 ? schemas[0] : schemas);
+  }, [article, category, source, searchQuery, is404]);
 
   return null;
 };
+

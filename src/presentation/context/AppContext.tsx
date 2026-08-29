@@ -33,6 +33,10 @@ interface AppContextType {
   navigate: (path: string) => void;
   articleSlug: string | null;
   storySlug: string | null;
+  categorySlug: string | null;
+  sourceSlug: string | null;
+  searchQuery: string | null;
+  isNotFound: boolean;
   currentUser: UserProfile;
   setCurrentUser: React.Dispatch<React.SetStateAction<UserProfile>>;
   handleRoleChange: (newRole: UserRole) => void;
@@ -49,6 +53,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [activeTab, setActiveTabState] = useState<NavTab>('portal');
   const [articleSlug, setArticleSlug] = useState<string | null>(null);
   const [storySlug, setStorySlug] = useState<string | null>(null);
+  const [categorySlug, setCategorySlug] = useState<string | null>(null);
+  const [sourceSlug, setSourceSlug] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState<string | null>(null);
+  const [isNotFound, setIsNotFound] = useState<boolean>(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
 
@@ -58,65 +66,63 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     email: 'editor@naweayh.xyz',
     role: 'System Admin',
     avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=150',
-    department: 'غرفة الأخبار — Naw3iya News',
+    department: 'غرفة الأخبار — OmniNews',
   });
 
   const syncPathToTab = (pathname: string) => {
     setCurrentPath(pathname);
+    setIsNotFound(false);
+    setArticleSlug(null);
+    setStorySlug(null);
+    setCategorySlug(null);
+    setSourceSlug(null);
+    setSearchQuery(null);
+
     if (pathname.startsWith('/news/')) {
-      const slug = pathname.replace('/news/', '').split('/')[0];
+      const slug = decodeURIComponent(pathname.replace('/news/', '').split('/')[0]);
       setArticleSlug(slug || null);
-      setStorySlug(null);
       setActiveTabState('portal');
     } else if (pathname.startsWith('/story/')) {
-      const slug = pathname.replace('/story/', '').split('/')[0];
+      const slug = decodeURIComponent(pathname.replace('/story/', '').split('/')[0]);
       setStorySlug(slug || null);
-      setArticleSlug(null);
+      setActiveTabState('portal');
+    } else if (pathname.startsWith('/category/')) {
+      const slug = decodeURIComponent(pathname.replace('/category/', '').split('/')[0]);
+      setCategorySlug(slug || null);
+      setActiveTabState('portal');
+    } else if (pathname.startsWith('/source/')) {
+      const slug = decodeURIComponent(pathname.replace('/source/', '').split('/')[0]);
+      setSourceSlug(slug || null);
+      setActiveTabState('portal');
+    } else if (pathname.startsWith('/search')) {
+      const params = new URLSearchParams(window.location.search);
+      setSearchQuery(params.get('q') || '');
+      setActiveTabState('portal');
+    } else if (pathname.startsWith('/404')) {
+      setIsNotFound(true);
       setActiveTabState('portal');
     } else if (pathname.startsWith('/topic/')) {
       setActiveTabState('topics');
-      setArticleSlug(null);
-      setStorySlug(null);
     } else if (pathname.startsWith('/saved')) {
       setActiveTabState('saved');
-      setArticleSlug(null);
-      setStorySlug(null);
     } else if (pathname.startsWith('/my-feed')) {
       setActiveTabState('my_feed');
-      setArticleSlug(null);
-      setStorySlug(null);
     } else if (pathname.startsWith('/admin')) {
       setActiveTabState('admin');
-      setArticleSlug(null);
-      setStorySlug(null);
     } else if (pathname.startsWith('/mobile')) {
       setActiveTabState('mobile');
-      setArticleSlug(null);
-      setStorySlug(null);
     } else if (pathname.startsWith('/seo')) {
       setActiveTabState('seo');
-      setArticleSlug(null);
-      setStorySlug(null);
     } else if (pathname.startsWith('/social')) {
       setActiveTabState('social');
-      setArticleSlug(null);
-      setStorySlug(null);
     } else if (pathname.startsWith('/aggregator')) {
       setActiveTabState('ai_aggregator');
-      setArticleSlug(null);
-      setStorySlug(null);
     } else if (pathname.startsWith('/reports')) {
       setActiveTabState('reports');
-      setArticleSlug(null);
-      setStorySlug(null);
     } else if (pathname.startsWith('/projects')) {
       setActiveTabState('projects');
-      setArticleSlug(null);
-      setStorySlug(null);
     } else {
       setActiveTabState('portal');
-      setArticleSlug(null);
-      setStorySlug(null);
     }
   };
 
@@ -135,6 +141,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (window.location.pathname !== path) {
       window.history.pushState({}, '', path);
       syncPathToTab(path);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
@@ -142,6 +149,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setActiveTabState(tab);
     setArticleSlug(null);
     setStorySlug(null);
+    setCategorySlug(null);
+    setSourceSlug(null);
+    setSearchQuery(null);
+    setIsNotFound(false);
+
     let targetPath = '/';
     if (tab === 'saved') targetPath = '/saved';
     else if (tab === 'my_feed') targetPath = '/my-feed';
@@ -157,6 +169,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (window.location.pathname !== targetPath) {
       window.history.pushState({}, '', targetPath);
       setCurrentPath(targetPath);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
@@ -176,6 +189,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         navigate,
         articleSlug,
         storySlug,
+        categorySlug,
+        sourceSlug,
+        searchQuery,
+        isNotFound,
         currentUser,
         setCurrentUser,
         handleRoleChange,
