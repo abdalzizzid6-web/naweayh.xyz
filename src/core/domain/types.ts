@@ -145,9 +145,19 @@ export interface NewsArticle {
   embeddedVideos?: string[];
   paragraphs?: string[];
   formattedBody?: string;
+  contentHtml?: string;
+  contentText?: string;
+  excerpt?: string;
+  subheadline?: string;
+  contentStatus?: 'full' | 'partial' | 'failed';
+  contentSource?: 'rss' | 'extractor' | 'api';
+  contentClassification?: string;
+  wordCount?: number;
+  paragraphCount?: number;
   isFullContentAvailable?: boolean;
   copyrightNotice?: string;
   originalArticleUrl?: string;
+  canonicalUrl?: string;
   socialPosts: SocialPostStatus[];
 }
 

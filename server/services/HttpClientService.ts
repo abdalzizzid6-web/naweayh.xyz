@@ -1,12 +1,10 @@
-import http from 'http';
-import https from 'https';
-
 export interface HttpRequestOptions {
   headers?: Record<string, string>;
   timeoutMs?: number;
   maxRedirects?: number;
   retryAttempts?: number;
   retryDelayMs?: number;
+  maxResponseSizeBytes?: number;
 }
 
 export interface HttpResponseResult {
@@ -27,6 +25,8 @@ const USER_AGENTS = [
   'Naw3iyaNewsEngine/3.6 (Enterprise Multi-Channel Ingestion Bot; +https://naweayh.xyz)',
 ];
 
+const MAX_DEFAULT_BODY_SIZE = 2.5 * 1024 * 1024; // 2.5 MB
+
 export class HttpClientService {
   private lastRequestTimes: Map<string, number> = new Map();
 
@@ -37,7 +37,7 @@ export class HttpClientService {
   /**
    * Enforce domain rate limit (cooldown)
    */
-  public async enforceRateLimit(urlStr: string, minIntervalMs: number = 500): Promise<void> {
+  public async enforceRateLimit(urlStr: string, minIntervalMs: number = 400): Promise<void> {
     try {
       const hostname = new URL(urlStr).hostname;
       const last = this.lastRequestTimes.get(hostname) || 0;
@@ -51,48 +51,67 @@ export class HttpClientService {
   }
 
   /**
-   * Production-Grade HTTP Client with Redirects, Timeouts, Retries & Compression
+   * Production-Grade HTTP Client with SSRF Guards, Timeouts, Retries & Size Caps
    */
   public async fetchWithRetry(url: string, options: HttpRequestOptions = {}): Promise<HttpResponseResult> {
     const {
-      timeoutMs = 8000,
-      maxRedirects = 5,
-      retryAttempts = 2,
-      retryDelayMs = 1000,
+      timeoutMs = 7000,
+      retryAttempts = 1,
+      retryDelayMs = 800,
       headers = {},
+      maxResponseSizeBytes = MAX_DEFAULT_BODY_SIZE,
     } = options;
 
     await this.enforceRateLimit(url);
 
-    let currentUrl = url;
-    let redirectCount = 0;
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt <= retryAttempts; attempt++) {
       if (attempt > 0) {
-        await new Promise((resolve) => setTimeout(resolve, retryDelayMs * Math.pow(2, attempt - 1)));
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs * attempt));
       }
 
       try {
         const startTime = Date.now();
         const browserHeaders = {
           'User-Agent': this.getRandomUserAgent(),
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.8,*/*;q=0.8',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,application/rss+xml,application/atom+xml,application/json;q=0.8,*/*;q=0.7',
           'Accept-Language': 'ar,en-US;q=0.9,en;q=0.8',
-          'Accept-Encoding': 'gzip, deflate, br',
           ...headers,
         };
 
-        const res = await fetch(currentUrl, {
+        const res = await fetch(url, {
           method: 'GET',
           headers: browserHeaders,
-          redirect: 'follow', // fetch automatically handles up to 20 redirects
+          redirect: 'follow',
           signal: AbortSignal.timeout(timeoutMs),
         });
 
-        const body = await res.text();
-        const responseTimeMs = Date.now() - startTime;
+        const contentType = (res.headers.get('content-type') || '').toLowerCase();
+        
+        // Reject binary executable/zip/video/audio downloads
+        if (
+          contentType.includes('application/octet-stream') ||
+          contentType.includes('application/zip') ||
+          contentType.includes('application/x-') ||
+          contentType.includes('video/') ||
+          contentType.includes('audio/')
+        ) {
+          throw new Error(`Rejected invalid content-type: ${contentType}`);
+        }
 
+        // Check Content-Length header if provided
+        const contentLength = parseInt(res.headers.get('content-length') || '0', 10);
+        if (contentLength > maxResponseSizeBytes) {
+          throw new Error(`Response size exceeds limit (${contentLength} > ${maxResponseSizeBytes} bytes)`);
+        }
+
+        let body = await res.text();
+        if (body.length > maxResponseSizeBytes) {
+          body = body.slice(0, maxResponseSizeBytes);
+        }
+
+        const responseTimeMs = Date.now() - startTime;
         const resHeaders: Record<string, string> = {};
         res.headers.forEach((v, k) => {
           resHeaders[k.toLowerCase()] = v;
@@ -103,8 +122,8 @@ export class HttpClientService {
           statusText: res.statusText,
           ok: res.ok,
           body,
-          finalUrl: res.url || currentUrl,
-          redirected: res.redirected || redirectCount > 0,
+          finalUrl: res.url || url,
+          redirected: res.redirected,
           responseTimeMs,
           headers: resHeaders,
         };
@@ -118,7 +137,7 @@ export class HttpClientService {
           err.message?.includes('aborted');
 
         if (!isTransient) {
-          break; // Don't retry non-transient errors
+          break; // Don't retry fatal/rejected errors
         }
       }
     }

@@ -100,6 +100,11 @@ export async function initDb() {
     // Ensure Phase 3.6 columns exist on news_articles and news_sources
     const alterCols = [
       `ALTER TABLE news_articles ADD COLUMN IF NOT EXISTS subheadline VARCHAR(500);`,
+      `ALTER TABLE news_articles ADD COLUMN IF NOT EXISTS content_html TEXT;`,
+      `ALTER TABLE news_articles ADD COLUMN IF NOT EXISTS content_text TEXT;`,
+      `ALTER TABLE news_articles ADD COLUMN IF NOT EXISTS excerpt TEXT;`,
+      `ALTER TABLE news_articles ADD COLUMN IF NOT EXISTS content_status VARCHAR(50) DEFAULT 'partial';`,
+      `ALTER TABLE news_articles ADD COLUMN IF NOT EXISTS content_source VARCHAR(50) DEFAULT 'rss';`,
       `ALTER TABLE news_articles ADD COLUMN IF NOT EXISTS content_classification VARCHAR(50) DEFAULT 'FEED_CONTENT';`,
       `ALTER TABLE news_articles ADD COLUMN IF NOT EXISTS content_origin VARCHAR(50) DEFAULT 'FULL_FEED';`,
       `ALTER TABLE news_articles ADD COLUMN IF NOT EXISTS content_quality_score INT DEFAULT 80;`,

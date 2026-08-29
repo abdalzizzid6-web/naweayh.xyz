@@ -5,7 +5,7 @@ export interface ParsedFeedItem {
   title: string;
   link: string;
   description: string;
-  content: string;
+  content?: string;
   pubDate: string;
   author?: string;
   imageUrl?: string;
@@ -67,10 +67,14 @@ export class RSSAdapter extends SourceAdapter {
       if (channel) {
         const rawItems = Array.isArray(channel.item) ? channel.item : channel.item ? [channel.item] : [];
         for (const item of rawItems) {
-          const title = this.extractText(item.title);
+          const title = this.cleanHtml(this.extractText(item.title));
           const link = this.extractLink(item.link);
-          const description = this.cleanHtml(this.extractText(item.description || item.summary));
-          const content = this.cleanHtml(this.extractText(item['content:encoded'] || item.content || description));
+          const rawDescription = this.extractText(item.description || item.summary);
+          const description = this.cleanHtml(rawDescription);
+          
+          const rawEncoded = this.extractText(item['content:encoded'] || item.content);
+          const content = rawEncoded && rawEncoded.trim().length > 50 ? rawEncoded.trim() : undefined;
+          
           const pubDate = this.extractText(item.pubDate || item.published || item['dc:date']) || new Date().toISOString();
           const author = this.extractText(item['dc:creator'] || item.author) || undefined;
           const imageUrl = this.extractImageUrl(item);
@@ -81,8 +85,8 @@ export class RSSAdapter extends SourceAdapter {
             items.push({
               title,
               link,
-              description,
-              content: content || description,
+              description: description || title,
+              content,
               pubDate,
               author,
               imageUrl,
@@ -99,10 +103,14 @@ export class RSSAdapter extends SourceAdapter {
       if (feed) {
         const rawEntries = Array.isArray(feed.entry) ? feed.entry : feed.entry ? [feed.entry] : [];
         for (const entry of rawEntries) {
-          const title = this.extractText(entry.title);
+          const title = this.cleanHtml(this.extractText(entry.title));
           const link = this.extractLink(entry.link);
-          const description = this.cleanHtml(this.extractText(entry.summary || entry.description));
-          const content = this.cleanHtml(this.extractText(entry.content || description));
+          const rawDescription = this.extractText(entry.summary || entry.description);
+          const description = this.cleanHtml(rawDescription);
+          
+          const rawContent = this.extractText(entry.content);
+          const content = rawContent && rawContent.trim().length > 50 ? rawContent.trim() : undefined;
+          
           const pubDate = this.extractText(entry.published || entry.updated) || new Date().toISOString();
           const author = this.extractText(entry.author?.name || entry.author) || undefined;
           const imageUrl = this.extractImageUrl(entry);
@@ -112,8 +120,8 @@ export class RSSAdapter extends SourceAdapter {
             items.push({
               title,
               link,
-              description,
-              content: content || description,
+              description: description || title,
+              content,
               pubDate,
               author,
               imageUrl,
@@ -171,9 +179,16 @@ export class RSSAdapter extends SourceAdapter {
   private cleanHtml(htmlStr: string): string {
     if (!htmlStr) return '';
     return htmlStr
+      .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi, '$1')
       .replace(/<script[\s\S]*?<\/script>/gi, '')
       .replace(/<style[\s\S]*?<\/style>/gi, '')
-      .replace(/<[^>]+>/g, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;/gi, "'")
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
       .replace(/\s+/g, ' ')
       .trim();
   }
@@ -183,19 +198,24 @@ export class RSSAdapter extends SourceAdapter {
     const itemMatches = xmlString.match(/<(?:item|entry)[\s\S]*?<\/(?:item|entry)>/gi) || [];
 
     for (const itemXml of itemMatches) {
-      const titleMatch = itemXml.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/i);
-      const linkMatch = itemXml.match(/<link>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/link>/i) || itemXml.match(/href=["']([^"']+)["']/i);
-      const descMatch = itemXml.match(/<description>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/description>/i) || itemXml.match(/<summary>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/summary>/i);
-      const contentMatch = itemXml.match(/<content:encoded>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/content:encoded>/i);
-      const pubDateMatch = itemXml.match(/<pubDate>(.*?)<\/pubDate>/i) || itemXml.match(/<published>(.*?)<\/published>/i);
+      const titleMatch = itemXml.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i);
+      const linkMatch = itemXml.match(/<link\b[^>]*>([\s\S]*?)<\/link>/i) || itemXml.match(/href=["']([^"']+)["']/i);
+      const descMatch = itemXml.match(/<description\b[^>]*>([\s\S]*?)<\/description>/i) || itemXml.match(/<summary\b[^>]*>([\s\S]*?)<\/summary>/i);
+      const contentMatch = itemXml.match(/<content:encoded\b[^>]*>([\s\S]*?)<\/content:encoded>/i) || itemXml.match(/<content\b[^>]*>([\s\S]*?)<\/content>/i);
+      const pubDateMatch = itemXml.match(/<pubDate\b[^>]*>([\s\S]*?)<\/pubDate>/i) || itemXml.match(/<published\b[^>]*>([\s\S]*?)<\/published>/i);
       const imgMatch = itemXml.match(/url=["']([^"']+\.(?:jpg|jpeg|png|webp|gif))["']/i) || itemXml.match(/src=["']([^"']+\.(?:jpg|jpeg|png|webp|gif))["']/i);
 
       if (titleMatch) {
-        const title = this.cleanHtml(titleMatch[1]);
-        const link = linkMatch ? linkMatch[1].trim() : '';
+        let title = this.cleanHtml(titleMatch[1]);
+        title = title.replace(/^<!\[CDATA\[/, '').replace(/\]\]>$/, '').trim();
+        
+        let link = linkMatch ? linkMatch[1].trim() : '';
+        link = link.replace(/^<!\[CDATA\[/, '').replace(/\]\]>$/, '').trim();
+        
         const description = descMatch ? this.cleanHtml(descMatch[1]) : title;
-        const content = contentMatch ? this.cleanHtml(contentMatch[1]) : description;
-        const pubDate = pubDateMatch ? pubDateMatch[1].trim() : new Date().toISOString();
+        const rawContent = contentMatch ? contentMatch[1].trim() : undefined;
+        const content = rawContent && rawContent.length > 50 ? rawContent : undefined;
+        const pubDate = pubDateMatch ? this.cleanHtml(pubDateMatch[1]) : new Date().toISOString();
         const imageUrl = imgMatch ? imgMatch[1].trim() : undefined;
 
         if (title.length > 3) {

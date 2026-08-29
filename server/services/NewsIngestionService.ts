@@ -60,6 +60,9 @@ export interface IngestedArticleDTO {
   slug: string;
   summary: string;
   content: string;
+  contentHtml: string;
+  contentText: string;
+  excerpt: string;
   formattedBody: string;
   coverImageUrl: string;
   author: string;
@@ -71,6 +74,8 @@ export interface IngestedArticleDTO {
   canonicalUrl: string;
   contentClassification: string;
   contentOrigin: string;
+  contentStatus: string;
+  contentSource: string;
   contentQualityScore: number;
   wordCount: number;
   paragraphCount: number;
@@ -307,7 +312,14 @@ export class NewsIngestionService {
       let hasRecentArticle = false;
 
       for (const item of items) {
-        const rawTitle = item.title.trim();
+        let rawTitle = (item.title || '')
+          .replace(/<!\[CDATA\[/gi, '')
+          .replace(/\]\]>/gi, '')
+          .replace(/<[^>]+>/g, '')
+          .trim();
+
+        if (!rawTitle || rawTitle.length < 4) continue;
+
         const originalUrl = item.link || source.url;
         const canonicalUrl = getCanonicalUrl(originalUrl);
 
@@ -325,24 +337,43 @@ export class NewsIngestionService {
           hasRecentArticle = true;
         }
 
-        const extracted = contentExtractorService.extractFromFeedItem(item.content || '', item.summary || '', canonicalUrl, {
+        const rawItemContent = (item.content || '').replace(/<!\[CDATA\[/gi, '').replace(/\]\]>/gi, '').trim();
+        const rawItemSummary = (item.summary || '').replace(/<!\[CDATA\[/gi, '').replace(/\]\]>/gi, '').trim();
+
+        let extracted = contentExtractorService.extractFromFeedItem(rawItemContent, rawItemSummary, canonicalUrl, {
           coverImage: item.coverImage,
           author: item.author,
           publishedAt: publishedDate,
         });
 
-        const summary = extracted.summary || rawTitle;
-        const fullContent = item.content || item.summary || summary;
+        // If RSS feed had only short summary/description, attempt multi-stage full extraction from source URL if permitted & safe
+        if (!extracted.isFullContentAvailable && originalUrl && contentExtractorService.isUrlSafeForExtraction(originalUrl)) {
+          try {
+            const webExtracted = await contentExtractorService.extractFromUrl(originalUrl, rawItemSummary || rawTitle);
+            if (webExtracted.isFullContentAvailable) {
+              extracted = webExtracted;
+            }
+          } catch {
+            // Graceful fallback to feed excerpt (Case 3)
+          }
+        }
+
+        const summary = extracted.summary || rawItemSummary || rawTitle;
+        const fullContent = extracted.formattedBody || rawItemContent || summary;
         const formattedBody = extracted.formattedBody;
+        const plainText = (fullContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 
         const articleDto: IngestedArticleDTO = {
           title: rawTitle,
           slug,
           summary,
           content: fullContent,
+          contentHtml: formattedBody,
+          contentText: plainText,
+          excerpt: summary.slice(0, 350),
           formattedBody,
-          coverImageUrl: item.coverImage || source.logo || 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&w=800&q=80',
-          author: item.author || 'فريق التحرير',
+          coverImageUrl: item.coverImage || extracted.leadImageUrl || source.logo || 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&w=800&q=80',
+          author: item.author || extracted.authorName || 'فريق التحرير',
           sourceId: source.id,
           category: (item.categories && item.categories[0]) || source.category || 'أخبار عامة',
           country: source.country || 'اليمن',
@@ -351,6 +382,8 @@ export class NewsIngestionService {
           canonicalUrl,
           contentClassification: extracted.contentClassification,
           contentOrigin: extracted.contentOrigin,
+          contentStatus: extracted.contentStatus,
+          contentSource: extracted.contentSource,
           contentQualityScore: extracted.contentQualityScore,
           wordCount: extracted.wordCount,
           paragraphCount: extracted.paragraphCount,
@@ -364,12 +397,22 @@ export class NewsIngestionService {
         try {
           const insertRes = await pool.query(
             `INSERT INTO news_articles (
-              title, slug, summary, content, formatted_body, cover_image_url,
+              title, slug, summary, content, formatted_body, content_html, content_text, excerpt, cover_image_url,
               author, source_id, category, country, language, original_article_url, canonical_url,
-              content_classification, content_origin, content_quality_score, word_count, paragraph_count,
+              content_classification, content_origin, content_status, content_source, content_quality_score, word_count, paragraph_count,
               is_full_content_available, trust_score, sentiment, reading_time_minutes, published_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
-            ON CONFLICT (slug) DO NOTHING
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
+            ON CONFLICT (slug) DO UPDATE SET
+              content = EXCLUDED.content,
+              formatted_body = EXCLUDED.formatted_body,
+              content_html = EXCLUDED.content_html,
+              content_text = EXCLUDED.content_text,
+              content_status = EXCLUDED.content_status,
+              content_source = EXCLUDED.content_source,
+              content_classification = EXCLUDED.content_classification,
+              is_full_content_available = EXCLUDED.is_full_content_available,
+              word_count = EXCLUDED.word_count,
+              paragraph_count = EXCLUDED.paragraph_count
             RETURNING id`,
             [
               articleDto.title,
@@ -377,6 +420,9 @@ export class NewsIngestionService {
               articleDto.summary,
               articleDto.content,
               articleDto.formattedBody,
+              articleDto.contentHtml,
+              articleDto.contentText,
+              articleDto.excerpt,
               articleDto.coverImageUrl,
               articleDto.author,
               articleDto.sourceId,
@@ -387,6 +433,8 @@ export class NewsIngestionService {
               articleDto.canonicalUrl,
               articleDto.contentClassification,
               articleDto.contentOrigin,
+              articleDto.contentStatus,
+              articleDto.contentSource,
               articleDto.contentQualityScore,
               articleDto.wordCount,
               articleDto.paragraphCount,

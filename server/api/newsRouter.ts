@@ -117,10 +117,12 @@ export const validateCronSecret = (req: Request, res: Response, next: NextFuncti
         message: 'غير مصرح: مفتاح CRON_SECRET غير صحيح أو مفقود (401 Unauthorized)',
       });
     }
-  } else {
-    if (process.env.NODE_ENV === 'production') {
-      console.warn('[SECURITY WARNING] CRON_SECRET is not configured in production environment.');
-    }
+  } else if (process.env.NODE_ENV === 'production') {
+    return res.status(401).json({
+      success: false,
+      code: 'UNAUTHORIZED',
+      message: 'غير مصرح: يجب تكوين متغير CRON_SECRET في بيئة الإنتاج (401 Unauthorized)',
+    });
   }
   next();
 };
@@ -130,6 +132,108 @@ export const validateCronSecret = (req: Request, res: Response, next: NextFuncti
 // ==========================================
 
 // GET /api/v1/news - Paginated, filtered, sorted articles
+// Helper to map DB row to standard NewsArticle domain model
+function mapDbRowToArticle(row: any): any {
+  const paragraphs = (row.formatted_body || row.content_html || row.content || row.summary || '')
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+    .replace(/<div\b[^>]*>/gi, '<p>')
+    .replace(/<\/div>/gi, '</p>')
+    .match(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)
+    ?.map((p: string) => p.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim())
+    .filter((text: string) => text.length > 20) || [];
+
+  const fallbackParagraphs = paragraphs.length > 0
+    ? paragraphs
+    : (row.content_text || row.content || row.summary || row.title || '')
+        .replace(/<[^>]+>/g, ' ')
+        .split(/\n\s*\n/)
+        .map((s: string) => s.trim())
+        .filter((s: string) => s.length > 20);
+
+  const cleanTitle = (row.title || '').replace(/<!\[CDATA\[/gi, '').replace(/\]\]>/gi, '').replace(/<[^>]+>/g, '').trim();
+  const cleanSummary = (row.summary || row.excerpt || '').replace(/<!\[CDATA\[/gi, '').replace(/\]\]>/gi, '').replace(/<[^>]+>/g, '').trim();
+  const rawContent = (row.content || row.formatted_body || row.content_html || cleanSummary).replace(/<!\[CDATA\[/gi, '').replace(/\]\]>/gi, '').trim();
+
+  const isFull = Boolean(
+    row.is_full_content_available ||
+    row.content_status === 'full' ||
+    row.content_classification === 'FULL_PERMITTED_CONTENT' ||
+    fallbackParagraphs.length >= 3 ||
+    (rawContent.length > 350 && rawContent !== cleanSummary)
+  );
+
+  return {
+    id: String(row.id),
+    title: cleanTitle,
+    subheadline: row.subheadline,
+    slug: row.slug,
+    summary: cleanSummary,
+    content: rawContent,
+    formattedBody: row.formatted_body || row.content_html || rawContent,
+    contentHtml: row.content_html || row.formatted_body || rawContent,
+    contentText: row.content_text || cleanSummary,
+    excerpt: row.excerpt || cleanSummary,
+    contentStatus: row.content_status || (isFull ? 'full' : 'partial'),
+    contentSource: row.content_source || (row.content_origin === 'EXTRACTED_PERMITTED' ? 'extractor' : 'rss'),
+    contentClassification: row.content_classification || (isFull ? 'FULL_PERMITTED_CONTENT' : 'EXCERPT_ONLY'),
+    paragraphs: fallbackParagraphs.length > 0 ? fallbackParagraphs : [cleanSummary || cleanTitle],
+    wordCount: row.word_count || fallbackParagraphs.join(' ').split(/\s+/).filter(Boolean).length,
+    paragraphCount: row.paragraph_count || (fallbackParagraphs.length || 1),
+    mainImage: row.cover_image_url || 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&w=800&q=80',
+    galleryImages: [],
+    author: row.author || 'فريق التحرير',
+    category: row.category || 'أخبار عامة',
+    subCategory: row.category,
+    country: row.country || 'اليمن',
+    language: row.language || 'ar',
+    publishDate: row.published_at ? new Date(row.published_at).toISOString() : new Date().toISOString(),
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString(),
+    readTimeMinutes: row.reading_time_minutes || Math.max(1, Math.ceil((fallbackParagraphs.join(' ').split(/\s+/).length || 50) / 180)),
+    viewsCount: row.views_count || 0,
+    sharesCount: row.shares_count || 0,
+    commentsCount: 0,
+    bookmarksCount: row.saves_count || 0,
+    isBreaking: Boolean(row.is_breaking),
+    isTrending: Boolean(row.is_trending),
+    isEditorPick: false,
+    isBookmarked: false,
+    trustScore: row.trust_score || 95,
+    isFullContentAvailable: isFull,
+    originalArticleUrl: row.original_article_url,
+    canonicalUrl: row.canonical_url || row.original_article_url || `https://naweayh.xyz/news/${row.slug}`,
+    sources: [
+      {
+        id: String(row.source_id || 1),
+        name: row.source_name || 'مصدر إخباري موثوق',
+        logo: row.source_logo || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=120&q=80',
+        url: row.source_url || '',
+        publishedAt: row.published_at ? new Date(row.published_at).toISOString() : new Date().toISOString(),
+        reliabilityScore: row.source_trust || 95,
+        isPrimary: true,
+      }
+    ],
+    aiEntities: {
+      people: [],
+      organizations: [],
+      locations: [],
+      tags: [row.category || 'أخبار', row.country || 'اليمن'].filter(Boolean),
+      sentiment: 'Neutral',
+      trustScore: row.trust_score || 95,
+    },
+    seoMeta: {
+      title: cleanTitle,
+      description: cleanSummary,
+      keywords: [row.category, row.country, 'أخبار نوعية'].filter(Boolean),
+      canonicalUrl: `https://naweayh.xyz/news/${row.slug}`,
+      schemaType: 'NewsArticle',
+      openGraphImage: row.cover_image_url || '',
+    },
+    socialPosts: [],
+  };
+}
+
+// GET /api/v1/news
 newsApiRouter.get(['/v1/news', '/news'], async (req, res) => {
   try {
     const {
@@ -148,8 +252,9 @@ newsApiRouter.get(['/v1/news', '/news'], async (req, res) => {
 
     // Try PostgreSQL database query first
     try {
+      let countQuery = `SELECT COUNT(*) as total FROM news_articles a WHERE 1=1`;
       let query = `
-        SELECT a.*, s.name_arabic as source_name, s.logo as source_logo, s.trust_score as source_trust
+        SELECT a.*, s.name_arabic as source_name, s.logo as source_logo, s.url as source_url, s.trust_score as source_trust
         FROM news_articles a
         LEFT JOIN news_sources s ON a.source_id = s.id
         WHERE 1=1
@@ -159,15 +264,18 @@ newsApiRouter.get(['/v1/news', '/news'], async (req, res) => {
       if (category && category !== 'الكل') {
         params.push(category);
         query += ` AND a.category = $${params.length}`;
+        countQuery += ` AND a.category = $${params.length}`;
       }
       if (country && country !== 'جميع الدول') {
         params.push(country);
         query += ` AND a.country = $${params.length}`;
+        countQuery += ` AND a.country = $${params.length}`;
       }
       if (search) {
         const normSearch = normalizeArabicText(search as string);
         params.push(`%${normSearch}%`);
         query += ` AND (a.title ILIKE $${params.length} OR a.summary ILIKE $${params.length})`;
+        countQuery += ` AND (a.title ILIKE $${params.length} OR a.summary ILIKE $${params.length})`;
       }
 
       if (sort === 'trending') {
@@ -178,17 +286,22 @@ newsApiRouter.get(['/v1/news', '/news'], async (req, res) => {
         query += ` ORDER BY a.published_at DESC`;
       }
 
-      query += ` LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
-      params.push(limitNum, offset);
+      const totalRes = await pool.query(countQuery, params);
+      const total = parseInt(totalRes.rows[0]?.total || '0', 10);
 
-      const dbRes = await pool.query(query, params);
+      query += ` LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+      const dbRes = await pool.query(query, [...params, limitNum, offset]);
+
       if (dbRes.rows.length > 0) {
+        const mappedArticles = dbRes.rows.map(mapDbRowToArticle);
         return res.json({
           success: true,
           page: pageNum,
           limit: limitNum,
-          count: dbRes.rows.length,
-          data: dbRes.rows,
+          total,
+          totalPages: Math.ceil(total / limitNum) || 1,
+          count: mappedArticles.length,
+          data: mappedArticles,
         });
       }
     } catch (dbErr) {
@@ -239,14 +352,26 @@ newsApiRouter.get(['/v1/news', '/news'], async (req, res) => {
 newsApiRouter.get(['/v1/news/latest', '/news/latest'], async (req, res) => {
   try {
     const limitNum = parseInt((req.query.limit as string) || '15', 10);
+    try {
+      const dbRes = await pool.query(
+        `SELECT a.*, s.name_arabic as source_name, s.logo as source_logo, s.url as source_url, s.trust_score as source_trust
+         FROM news_articles a
+         LEFT JOIN news_sources s ON a.source_id = s.id
+         ORDER BY a.published_at DESC
+         LIMIT $1`,
+        [limitNum]
+      );
+      if (dbRes.rows.length > 0) {
+        return res.json({ success: true, count: dbRes.rows.length, data: dbRes.rows.map(mapDbRowToArticle) });
+      }
+    } catch {}
+
     const articles = articlesRepository.getLatestNews(limitNum);
     res.json({ success: true, count: articles.length, data: articles });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
   }
 });
-
-// GET /api/v1/news/breaking
 
 // POST /api/v1/sources/:id/toggle
 newsApiRouter.post('/v1/sources/:id/toggle', async (req, res) => {
@@ -259,8 +384,23 @@ newsApiRouter.post('/v1/sources/:id/toggle', async (req, res) => {
   }
 });
 
+// GET /api/v1/news/breaking
 newsApiRouter.get(['/v1/news/breaking', '/news/breaking'], async (_req, res) => {
   try {
+    try {
+      const dbRes = await pool.query(
+        `SELECT a.*, s.name_arabic as source_name, s.logo as source_logo, s.url as source_url, s.trust_score as source_trust
+         FROM news_articles a
+         LEFT JOIN news_sources s ON a.source_id = s.id
+         WHERE a.is_breaking = true OR a.published_at >= NOW() - INTERVAL '3 hours'
+         ORDER BY a.published_at DESC
+         LIMIT 10`
+      );
+      if (dbRes.rows.length > 0) {
+        return res.json({ success: true, count: dbRes.rows.length, data: dbRes.rows.map(mapDbRowToArticle) });
+      }
+    } catch {}
+
     const articles = articlesRepository.getBreakingNews();
     res.json({ success: true, count: articles.length, data: articles });
   } catch (error: any) {
@@ -271,6 +411,19 @@ newsApiRouter.get(['/v1/news/breaking', '/news/breaking'], async (_req, res) => 
 // GET /api/v1/news/trending
 newsApiRouter.get(['/v1/news/trending', '/news/trending'], async (_req, res) => {
   try {
+    try {
+      const dbRes = await pool.query(
+        `SELECT a.*, s.name_arabic as source_name, s.logo as source_logo, s.url as source_url, s.trust_score as source_trust
+         FROM news_articles a
+         LEFT JOIN news_sources s ON a.source_id = s.id
+         ORDER BY (a.views_count * 1.5 + a.shares_count * 3) DESC, a.published_at DESC
+         LIMIT 10`
+      );
+      if (dbRes.rows.length > 0) {
+        return res.json({ success: true, count: dbRes.rows.length, data: dbRes.rows.map(mapDbRowToArticle) });
+      }
+    } catch {}
+
     const articles = newsService.getTrendingNews().slice(0, 10);
     res.json({ success: true, count: articles.length, data: articles });
   } catch (error: any) {
@@ -281,6 +434,19 @@ newsApiRouter.get(['/v1/news/trending', '/news/trending'], async (_req, res) => 
 // GET /api/v1/news/most-read
 newsApiRouter.get(['/v1/news/most-read', '/news/most-read'], async (_req, res) => {
   try {
+    try {
+      const dbRes = await pool.query(
+        `SELECT a.*, s.name_arabic as source_name, s.logo as source_logo, s.url as source_url, s.trust_score as source_trust
+         FROM news_articles a
+         LEFT JOIN news_sources s ON a.source_id = s.id
+         ORDER BY a.views_count DESC, a.published_at DESC
+         LIMIT 10`
+      );
+      if (dbRes.rows.length > 0) {
+        return res.json({ success: true, count: dbRes.rows.length, data: dbRes.rows.map(mapDbRowToArticle) });
+      }
+    } catch {}
+
     const articles = newsService.getMostReadNews(10);
     res.json({ success: true, count: articles.length, data: articles });
   } catch (error: any) {
@@ -341,7 +507,76 @@ newsApiRouter.get('/v1/news/ingestion-logs', async (_req, res) => {
 newsApiRouter.get(['/v1/news/detail/:slug', '/v1/news/:slug', '/news/detail/:slug', '/news/:slug'], async (req, res) => {
   try {
     const { slug } = req.params;
-    const article = articlesRepository.getBySlug(slug);
+
+    // 1. Try PostgreSQL database lookup
+    try {
+      const isNumericId = /^\d+$/.test(slug);
+      const dbQuery = isNumericId
+        ? `SELECT a.*, s.name_arabic as source_name, s.logo as source_logo, s.url as source_url, s.trust_score as source_trust
+           FROM news_articles a
+           LEFT JOIN news_sources s ON a.source_id = s.id
+           WHERE a.id = $1 LIMIT 1`
+        : `SELECT a.*, s.name_arabic as source_name, s.logo as source_logo, s.url as source_url, s.trust_score as source_trust
+           FROM news_articles a
+           LEFT JOIN news_sources s ON a.source_id = s.id
+           WHERE a.slug = $1 OR a.canonical_url = $1 LIMIT 1`;
+
+      const dbRes = await pool.query(dbQuery, [isNumericId ? parseInt(slug, 10) : slug]);
+      
+      if (dbRes.rows.length > 0) {
+        const row = dbRes.rows[0];
+        
+        // Asynchronously increment view count in DB
+        pool.query(`UPDATE news_articles SET views_count = views_count + 1 WHERE id = $1`, [row.id]).catch(() => {});
+
+        // Fetch related articles from same category
+        let relatedArticles: any[] = [];
+        try {
+          const relRes = await pool.query(
+            `SELECT a.*, s.name_arabic as source_name, s.logo as source_logo
+             FROM news_articles a
+             LEFT JOIN news_sources s ON a.source_id = s.id
+             WHERE a.id != $1 AND (a.category = $2 OR a.country = $3)
+             ORDER BY a.published_at DESC
+             LIMIT 4`,
+            [row.id, row.category, row.country]
+          );
+          relatedArticles = relRes.rows.map(mapDbRowToArticle);
+        } catch {}
+
+        // Fetch more from same source
+        let moreFromSource: any[] = [];
+        if (row.source_id) {
+          try {
+            const srcRes = await pool.query(
+              `SELECT a.*, s.name_arabic as source_name, s.logo as source_logo
+               FROM news_articles a
+               LEFT JOIN news_sources s ON a.source_id = s.id
+               WHERE a.id != $1 AND a.source_id = $2
+               ORDER BY a.published_at DESC
+               LIMIT 4`,
+              [row.id, row.source_id]
+            );
+            moreFromSource = srcRes.rows.map(mapDbRowToArticle);
+          } catch {}
+        }
+
+        const articleObj = mapDbRowToArticle(row);
+        return res.json({
+          success: true,
+          data: {
+            ...articleObj,
+            viewsCount: (row.views_count || 0) + 1,
+            relatedArticles,
+            moreFromSource,
+            permanentUrl: `https://naweayh.xyz/news/${articleObj.slug}`,
+          },
+        });
+      }
+    } catch (dbErr) {}
+
+    // 2. Repository Fallback
+    const article = articlesRepository.getBySlug(slug) || articlesRepository.getById(slug);
 
     if (!article) {
       return res.status(404).json({ success: false, message: 'الخبر غير موجود' });

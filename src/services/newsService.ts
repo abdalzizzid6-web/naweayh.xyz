@@ -206,6 +206,47 @@ class NewsService {
     return updated;
   }
 
+  public async syncLatestFromApi(): Promise<NewsArticle[]> {
+    try {
+      const response = await fetch('/api/v1/news?limit=50');
+      if (!response.ok) return [];
+      const json = await response.json();
+      if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+        for (const item of json.data) {
+          if (!articlesRepository.getById(item.id) && !articlesRepository.getBySlug(item.slug)) {
+            articlesRepository.add(item);
+          }
+        }
+        return json.data;
+      }
+    } catch {
+      // Fallback silently if offline or on initial render
+    }
+    return [];
+  }
+
+  public async getArticleBySlugOrIdAsync(slugOrId: string): Promise<NewsArticle | null> {
+    try {
+      const response = await fetch(`/api/v1/news/detail/${encodeURIComponent(slugOrId)}`);
+      if (response.ok) {
+        const json = await response.json();
+        if (json.success && json.data) {
+          const article = json.data as NewsArticle;
+          this.recordReadingHistory(article);
+          return article;
+        }
+      }
+    } catch {
+      // Fallback to local repo
+    }
+    const local = articlesRepository.getBySlug(slugOrId) || articlesRepository.getById(slugOrId);
+    if (local) {
+      articlesRepository.incrementView(local.id);
+      this.recordReadingHistory(local);
+    }
+    return local;
+  }
+
   public shareArticle(id: string): void {
     articlesRepository.incrementShare(id);
   }

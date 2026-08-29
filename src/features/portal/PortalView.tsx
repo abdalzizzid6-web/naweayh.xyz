@@ -78,13 +78,35 @@ export const PortalView: React.FC = () => {
   const [tickerIndex, setTickerIndex] = useState<number>(0);
   const [isTickerPaused, setIsTickerPaused] = useState<boolean>(false);
   const [stories, setStories] = useState<StoryCluster[]>([]);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [, setForceUpdate] = useState<number>(0);
 
   useEffect(() => {
     setBreakingNews(newsService.getBreakingNews());
-    async function fetchStories() {
-      const res = await storiesService.getStories({ limit: 6 });
-      setStories(res.data);
+    
+    async function syncData() {
+      setIsSyncing(true);
+      try {
+        await newsService.syncLatestFromApi();
+        setBreakingNews(newsService.getBreakingNews());
+        setForceUpdate((v) => v + 1);
+      } catch (err) {
+        console.warn('API sync warning:', err);
+      } finally {
+        setIsSyncing(false);
+      }
     }
+
+    async function fetchStories() {
+      try {
+        const res = await storiesService.getStories({ limit: 6 });
+        setStories(res.data);
+      } catch (e) {
+        // silent fallback
+      }
+    }
+
+    syncData();
     fetchStories();
   }, []);
 
