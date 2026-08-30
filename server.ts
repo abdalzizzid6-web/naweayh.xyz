@@ -115,11 +115,15 @@ async function startServer() {
 
   // Test DB connection and start worker scheduler in container/server mode (if not serverless)
   if (!process.env.VERCEL) {
-    testDbConnection().then(connected => {
-      if (connected) {
-        newsSchedulerWorker.start();
+    const connected = await testDbConnection();
+    if (connected) {
+      try {
+        await syncDatabaseArticlesToRepository();
+      } catch (err) {
+        console.error('Failed to sync DB articles to repository on boot', err);
       }
-    });
+      newsSchedulerWorker.start();
+    }
   }
 
   // Vite Dev Server / SSR Static Fallback

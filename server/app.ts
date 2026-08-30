@@ -18,7 +18,7 @@ export async function syncDatabaseArticlesToRepository(): Promise<number> {
             id: String(row.id),
             name: row.name_arabic || row.name,
             logo: row.logo || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=100&q=80',
-            url: row.rss_url || row.website_url || '',
+            url: row.feed_url || row.url || '',
             type: (row.protocol === 'GOOGLE_NEWS' ? 'Google_News' : row.protocol === 'REUTERS' ? 'Reuters' : 'RSS') as any,
             category: row.category || 'عام',
             country: row.country || 'اليمن',
@@ -63,9 +63,6 @@ export async function syncDatabaseArticlesToRepository(): Promise<number> {
 
 export function createExpressApp(): Express {
   const app = express();
-
-  // Prime repository with latest articles on boot
-  syncDatabaseArticlesToRepository().catch(() => {});
 
   // Canonical Domain & Protocol Enforcement (https://naweayh.xyz)
   app.use((req, res, next) => {

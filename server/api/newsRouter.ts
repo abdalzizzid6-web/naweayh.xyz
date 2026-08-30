@@ -254,7 +254,7 @@ newsApiRouter.get(['/v1/news', '/news'], async (req, res) => {
     try {
       let countQuery = `SELECT COUNT(*) as total FROM news_articles a WHERE 1=1`;
       let query = `
-        SELECT a.*, COALESCE(s.name_arabic, s.name) as source_name, s.logo as source_logo, s.rss_url as source_url
+        SELECT a.*, COALESCE(s.name_arabic, s.name) as source_name, s.logo as source_logo, COALESCE(s.feed_url, s.url) as source_url
         FROM news_articles a
         LEFT JOIN news_sources s ON a.source_id = s.id
         WHERE 1=1
