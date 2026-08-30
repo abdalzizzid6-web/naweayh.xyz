@@ -14,6 +14,8 @@ import { SprintReportsView } from './features/reports/SprintReportsView';
 import { ProjectManager } from './features/projects/ProjectManager';
 import { SEODashboardPanel } from './features/seo/SEODashboardPanel';
 import { SEOHead } from './seo-engine/SEOHead';
+import { AdminLogin } from './features/admin/AdminLogin';
+import { Loader2 } from 'lucide-react';
 
 function AppContent() {
   const {
@@ -28,6 +30,7 @@ function AppContent() {
     searchQuery,
     isNotFound,
     navigate,
+    isAuthLoading,
   } = useApp();
 
   const portalTabs = ['portal', 'latest', 'topics', 'my_feed', 'saved', 'yemen', 'arab', 'world', 'business', 'tech', 'sports', 'video', 'live'];
@@ -61,7 +64,14 @@ function AppContent() {
     </>
   );
 
-  const adminContent = (
+  const adminContent = isAuthLoading ? (
+    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center">
+      <Loader2 className="w-10 h-10 text-indigo-500 animate-spin mb-4" />
+      <p className="text-slate-400 font-bold">جاري التحقق من الصلاحيات...</p>
+    </div>
+  ) : !currentUser ? (
+    <AdminLogin />
+  ) : (
     <>
       {activeTab === 'mobile' && <MobileAppSimulator />}
       {activeTab === 'ai_aggregator' && <AIAggregatorPanel />}
@@ -88,7 +98,7 @@ function AppContent() {
   return isPortalTab ? (
     <PortalLayout>{portalContent}</PortalLayout>
   ) : (
-    <MainLayout>{adminContent}</MainLayout>
+    currentUser ? <MainLayout>{adminContent}</MainLayout> : adminContent
   );
 }
 

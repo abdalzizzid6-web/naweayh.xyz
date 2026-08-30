@@ -19,7 +19,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
 }) => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [owner, setOwner] = useState(currentUser.name);
+  const [owner, setOwner] = useState(currentUser?.name || 'Admin');
   const [budget, setBudget] = useState(200000);
   const [priority, setPriority] = useState<ProjectPriority>('Medium');
   const [status, setStatus] = useState<ProjectStatus>('Planning');
@@ -59,7 +59,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
   const resetForm = () => {
     setName('');
     setDescription('');
-    setOwner(currentUser.name);
+    setOwner(currentUser?.name || 'Admin');
     setBudget(200000);
     setPriority('Medium');
     setStatus('Planning');

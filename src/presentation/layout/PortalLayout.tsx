@@ -202,8 +202,8 @@ export const PortalLayout: React.FC<{ children: React.ReactNode }> = ({ children
               )}
             </button>
 
-            {/* Newsroom Control Switcher (For Authorized Editorial Roles) */}
-            {(currentUser.role === 'System Admin' || currentUser.role === 'Executive' || currentUser.role === 'Editor-in-Chief') && (
+            {/* Newsroom Control Switcher (For Authorized Editorial Roles or Direct Admin Link) */}
+            {currentUser && (currentUser.role === 'System Admin' || currentUser.role === 'Executive' || currentUser.role === 'Editor-in-Chief') && (
               <button 
                 onClick={() => setActiveTab('dashboard')}
                 className="hidden sm:flex items-center gap-2 px-3.5 py-2 text-xs font-bold text-emerald-950 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-800 rounded-xl transition-colors shadow-2xs"
@@ -216,13 +216,20 @@ export const PortalLayout: React.FC<{ children: React.ReactNode }> = ({ children
             <div className="h-6 w-px bg-slate-200 dark:bg-slate-700 mx-1 hidden sm:block" />
 
             <div className="flex items-center gap-2 p-1">
-              <div className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center overflow-hidden shadow-2xs">
-                {currentUser.avatar ? (
+              <button
+                onClick={() => {
+                  setActiveTab('admin');
+                  navigate('/admin');
+                }}
+                className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 flex items-center justify-center overflow-hidden shadow-2xs transition-colors"
+                title={currentUser ? `${currentUser.name} (${currentUser.role})` : 'تسجيل الدخول / لوحة الإدارة'}
+              >
+                {currentUser?.avatar ? (
                   <img src={currentUser.avatar} alt={currentUser.name} className="w-full h-full object-cover" />
                 ) : (
                   <User className="w-5 h-5 text-slate-600 dark:text-slate-300" />
                 )}
-              </div>
+              </button>
             </div>
           </div>
 

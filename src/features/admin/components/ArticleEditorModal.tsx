@@ -162,9 +162,11 @@ export const ArticleEditorModal: React.FC<ArticleEditorModalProps> = ({
     const updated: NewsArticle = {
       id: article?.id || `art-${Date.now().toString().slice(-4)}`,
       title,
-      slug: title.toLowerCase().replace(/\s+/g, '-').slice(0, 50),
+      slug: article?.slug || title.trim().toLowerCase().replace(/[^\u0621-\u064Aa-z0-9]+/gi, '-').slice(0, 100) + '-' + Date.now().toString().slice(-4),
       summary,
       content,
+      isFullContentAvailable: content.length > 250,
+      contentStatus: content.length > 250 ? 'full' : 'partial',
       mainImage,
       galleryImages: article?.galleryImages || [],
       category,

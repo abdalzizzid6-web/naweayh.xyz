@@ -152,19 +152,27 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
             )}
           </div>
 
-          {/* Role Simulator */}
-          <div className="bg-slate-800 p-1.5 rounded-xl border border-slate-700/80 flex items-center gap-2">
-            <UserCheck className="w-3.5 h-3.5 text-indigo-400" />
-            <select
-              value={currentUser.role}
-              onChange={(e) => onRoleChange(e.target.value as UserRole)}
-              className="text-xs font-bold bg-transparent text-indigo-200 focus:outline-none cursor-pointer"
+          {/* User Profile & Logout */}
+          <div className="bg-slate-800 p-1.5 rounded-xl border border-slate-700/80 flex items-center gap-3 pr-3">
+            <div className="flex items-center gap-2">
+              <UserCheck className="w-3.5 h-3.5 text-indigo-400" />
+              <div className="flex flex-col">
+                <span className="text-[11px] font-bold text-white">{currentUser?.name || 'Admin'}</span>
+                <span className="text-[9px] text-indigo-300">{currentUser?.role || 'System Admin'}</span>
+              </div>
+            </div>
+            <div className="w-px h-5 bg-slate-700"></div>
+            <button
+              onClick={() => {
+                import('../../../services/AuthService').then(({ AuthService }) => {
+                  AuthService.clearToken();
+                  window.location.reload();
+                });
+              }}
+              className="text-xs font-bold text-rose-400 hover:text-rose-300 px-2 py-1 rounded transition-colors"
             >
-              <option value="Executive" className="bg-slate-900 text-white">Executive (الرئيس التنفيذي)</option>
-              <option value="System Admin" className="bg-slate-900 text-white">System Admin (مسؤول النظام)</option>
-              <option value="Operations Lead" className="bg-slate-900 text-white">Operations Lead (مدير العمليات)</option>
-              <option value="Auditor" className="bg-slate-900 text-white">Auditor (مدقق النظام)</option>
-            </select>
+              خروج
+            </button>
           </div>
         </div>
       </div>

@@ -105,7 +105,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onRoleChang
           <UserCheck className="w-4 h-4 text-indigo-600" />
           <span className="text-xs font-semibold text-slate-700">Simulate Role:</span>
           <select
-            value={currentUser.role}
+            value={currentUser?.role || 'System Admin'}
             onChange={(e) => onRoleChange(e.target.value as UserRole)}
             className="text-xs font-semibold px-2.5 py-1.5 border border-slate-300 rounded-lg bg-slate-50 focus:outline-none text-indigo-900"
           >
@@ -128,14 +128,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onRoleChang
           <div
             key={r.role}
             className={`p-4 rounded-xl border transition-all ${
-              currentUser.role === r.role
+              currentUser?.role === r.role
                 ? 'bg-indigo-50/60 border-indigo-300 ring-2 ring-indigo-500/20'
                 : 'bg-white border-slate-200'
             }`}
           >
             <div className="flex items-center justify-between mb-2">
               <span className="font-semibold text-xs text-slate-900">{r.role}</span>
-              {currentUser.role === r.role && <Badge variant="indigo">Active</Badge>}
+              {currentUser?.role === r.role && <Badge variant="indigo">Active</Badge>}
             </div>
             <p className="text-xs text-slate-500">{r.scope}</p>
           </div>

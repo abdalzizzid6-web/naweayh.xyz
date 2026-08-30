@@ -96,7 +96,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
         <div className="space-y-2 relative z-10">
           <div className="flex items-center gap-2">
             <Badge variant="indigo" className="bg-indigo-500/20 text-indigo-200 border-indigo-400/30">
-              {currentUser.role} Control
+              {currentUser?.role || 'Admin'} Control
             </Badge>
             <span className="text-xs text-slate-400">Safara90 v2.4.0 Engine Active</span>
           </div>
@@ -298,7 +298,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
                   <Clock className="w-4 h-4 text-slate-600" />
                   <span className="font-medium">Current Role Session</span>
                 </div>
-                <span className="font-bold text-indigo-700">{currentUser.role}</span>
+                <span className="font-bold text-indigo-700">{currentUser?.role || 'Admin'}</span>
               </div>
             </div>
           </Card>

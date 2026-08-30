@@ -1,3 +1,4 @@
+import { AuthService } from "../../../services/AuthService";
 import React, { useState, useEffect } from 'react';
 import { Card } from '../../../components/ui/Card';
 import { Button } from '../../../components/ui/Button';
@@ -61,7 +62,7 @@ export const SourceManagementCenter: React.FC<SourceManagementCenterProps> = ({
   const fetchCatalogSources = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/v1/sources/catalog?country=${encodeURIComponent(countryFilter)}&category=${encodeURIComponent(categoryFilter)}&search=${encodeURIComponent(search)}`);
+      const res = await AuthService.fetchWithAuth(`/api/v1/sources/catalog?country=${encodeURIComponent(countryFilter)}&category=${encodeURIComponent(categoryFilter)}&search=${encodeURIComponent(search)}`);
       const data = await res.json();
       if (data.success) {
         setCatalogSources(data.data);
@@ -75,7 +76,7 @@ export const SourceManagementCenter: React.FC<SourceManagementCenterProps> = ({
 
   const fetchHealthMetrics = async () => {
     try {
-      const res = await fetch('/api/v1/sources/health');
+      const res = await AuthService.fetchWithAuth('/api/v1/sources/health');
       const data = await res.json();
       if (data.success) {
         setHealthSummary(data.summary);
@@ -99,7 +100,7 @@ export const SourceManagementCenter: React.FC<SourceManagementCenterProps> = ({
     if (!discoveryUrl) return;
     setDiscoveryLoading(true);
     try {
-      const res = await fetch('/api/v1/sources/discover', {
+      const res = await AuthService.fetchWithAuth('/api/v1/sources/discover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: discoveryUrl }),
@@ -122,7 +123,7 @@ export const SourceManagementCenter: React.FC<SourceManagementCenterProps> = ({
 
   const handleAddDiscoveredFeed = async (feed: any) => {
     try {
-      const res = await fetch('/api/v1/sources', {
+      const res = await AuthService.fetchWithAuth('/api/v1/sources', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -154,7 +155,7 @@ export const SourceManagementCenter: React.FC<SourceManagementCenterProps> = ({
     setImportResult(null);
 
     try {
-      const res = await fetch('/api/v1/sources/bulk-import', {
+      const res = await AuthService.fetchWithAuth('/api/v1/sources/bulk-import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -179,7 +180,7 @@ export const SourceManagementCenter: React.FC<SourceManagementCenterProps> = ({
 
   const handleToggleSource = async (id: number) => {
     try {
-      const res = await fetch(`/api/v1/sources/${id}/toggle`, { method: 'POST' });
+      const res = await AuthService.fetchWithAuth(`/api/v1/sources/${id}/toggle`, { method: 'POST' });
       const data = await res.json();
       if (data.success) {
         triggerToast('تم تحديث حالة المصدر بنجاح');
@@ -193,7 +194,7 @@ export const SourceManagementCenter: React.FC<SourceManagementCenterProps> = ({
   const handleDeleteSource = async (id: number) => {
     if (!confirm('هل أنت تأكد من رغبتك في حذف هذا المصدر الإخباري؟')) return;
     try {
-      const res = await fetch(`/api/v1/sources/${id}`, { method: 'DELETE' });
+      const res = await AuthService.fetchWithAuth(`/api/v1/sources/${id}`, { method: 'DELETE' });
       const data = await res.json();
       if (data.success) {
         triggerToast('تم حذف المصدر بنجاح');

@@ -141,10 +141,10 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
               </div>
               <div className="hidden sm:block text-right">
                 <span className="text-xs font-semibold text-white block leading-tight">
-                  {currentUser.name}
+                  {currentUser?.name || 'مستخدم النظام'}
                 </span>
                 <span className="text-[10px] text-indigo-400 font-semibold block">
-                  {currentUser.role}
+                  {currentUser?.role || 'زائر'}
                 </span>
               </div>
             </div>
@@ -188,7 +188,7 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
             </nav>
 
             <div className="pt-3 border-t border-slate-800 text-xs text-slate-400">
-              <p>الدور الوظيفي: <strong className="text-indigo-400">{currentUser.role}</strong></p>
+              <p>الدور الوظيفي: <strong className="text-indigo-400">{currentUser?.role || 'زائر'}</strong></p>
             </div>
           </div>
           <div className="flex-1" onClick={() => setSidebarOpen(false)} />

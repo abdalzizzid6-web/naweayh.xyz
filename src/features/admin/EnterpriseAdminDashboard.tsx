@@ -1,3 +1,4 @@
+import { AuthService } from "../../services/AuthService";
 import React, { useState, useEffect } from 'react';
 import { UserRole } from '../../types';
 import { articlesRepository } from '../../repositories/articlesRepository';
@@ -48,8 +49,37 @@ export const EnterpriseAdminDashboard: React.FC<EnterpriseAdminDashboardProps> =
   // Repositories State
   const [articles, setArticles] = useState<NewsArticle[]>(articlesRepository.getAll());
   const [sources, setSources] = useState<any[]>([]);
+
+  const refreshAllData = async () => {
+    try {
+      const [sourcesRes, newsRes] = await Promise.all([
+        AuthService.fetchWithAuth('/api/v1/sources'),
+        AuthService.fetchWithAuth('/api/v1/news?limit=100'),
+      ]);
+
+      if (sourcesRes.ok) {
+        const sData = await sourcesRes.json();
+        if (sData.success && Array.isArray(sData.data)) setSources(sData.data);
+      }
+
+      if (newsRes.ok) {
+        const nData = await newsRes.json();
+        if (nData.success && Array.isArray(nData.data) && nData.data.length > 0) {
+          setArticles(nData.data);
+          nData.data.forEach((item: NewsArticle) => {
+            if (!articlesRepository.getById(item.id)) {
+              articlesRepository.add(item);
+            }
+          });
+        }
+      }
+    } catch {
+      // Keep local repository as solid fallback
+    }
+  };
+
   useEffect(() => {
-    fetch("/api/v1/sources").then(r => r.json()).then(d => { if(d.success) setSources(d.data); });
+    refreshAllData();
   }, []);
   const [users, setUsers] = useState<EnterpriseUser[]>(enterpriseAdminRepository.getUsers());
   const [ads, setAds] = useState<EnterpriseAd[]>(
@@ -82,11 +112,36 @@ export const EnterpriseAdminDashboard: React.FC<EnterpriseAdminDashboardProps> =
   };
 
   // Article Operations
-  const handleSaveArticle = (updatedArticle: NewsArticle) => {
-    articlesRepository.save(updatedArticle);
-    setArticles(articlesRepository.getAll());
+  const handleSaveArticle = async (updatedArticle: NewsArticle) => {
+    try {
+      const isExisting = articles.some((a) => a.id === updatedArticle.id);
+      const url = isExisting ? `/api/v1/news/${updatedArticle.id}` : '/api/v1/news';
+      const method = isExisting ? 'PUT' : 'POST';
+
+      const res = await AuthService.fetchWithAuth(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedArticle),
+      });
+
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.data) {
+          articlesRepository.save(json.data);
+          setArticles((prev) =>
+            isExisting ? prev.map((a) => (a.id === json.data.id ? json.data : a)) : [json.data, ...prev]
+          );
+        }
+      } else {
+        articlesRepository.save(updatedArticle);
+        setArticles(articlesRepository.getAll());
+      }
+    } catch {
+      articlesRepository.save(updatedArticle);
+      setArticles(articlesRepository.getAll());
+    }
     setIsArticleEditorOpen(false);
-    triggerToast(`تم حفظ ونشر الخبر بنجاح: (${updatedArticle.title.slice(0, 20)}...)`);
+    triggerToast(`تم حفظ ونشر الخبر بنجاح: (${updatedArticle.title.slice(0, 25)}...)`);
   };
 
   const handleUpdateArticleStatus = (articleId: string, status: string) => {
@@ -94,47 +149,76 @@ export const EnterpriseAdminDashboard: React.FC<EnterpriseAdminDashboardProps> =
     if (art) {
       const updated = { ...art, isBreaking: status === 'Breaking' ? true : art.isBreaking };
       articlesRepository.save(updated);
-      setArticles(articlesRepository.getAll());
+      setArticles((prev) => prev.map((a) => (a.id === articleId ? updated : a)));
       triggerToast('تم تحديث حالة المقال');
     }
   };
 
-  const handleToggleBreaking = (articleId: string) => {
+  const handleToggleBreaking = async (articleId: string) => {
+    try {
+      const res = await AuthService.fetchWithAuth(`/api/v1/news/${articleId}/toggle-breaking`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.data) {
+          setArticles((prev) => prev.map((a) => (a.id === articleId ? json.data : a)));
+          triggerToast(`تم ${json.data.isBreaking ? 'تعيين' : 'إلغاء'} الخبر العاجل`);
+          return;
+        }
+      }
+    } catch {}
+
     const art = articles.find((a) => a.id === articleId);
     if (art) {
       const updated = { ...art, isBreaking: !art.isBreaking };
       articlesRepository.save(updated);
-      setArticles(articlesRepository.getAll());
+      setArticles((prev) => prev.map((a) => (a.id === articleId ? updated : a)));
       triggerToast(`تم ${updated.isBreaking ? 'تعيين' : 'إلغاء'} الخبر العاجل`);
     }
   };
 
-  const handleDeleteArticle = (articleId: string) => {
+  const handleDeleteArticle = async (articleId: string) => {
+    try {
+      await AuthService.fetchWithAuth(`/api/v1/news/${articleId}`, {
+        method: 'DELETE',
+      });
+    } catch {}
+
     articlesRepository.delete(articleId);
-    setArticles(articlesRepository.getAll());
+    setArticles((prev) => prev.filter((a) => a.id !== articleId));
     triggerToast('تم أرشفة الخبر وحذفه بنجاح');
   };
 
   // Source Operations
   const handleAddSource = async (newSource: any) => {
-      const res = await fetch('/api/v1/sources', {
+    try {
+      const res = await AuthService.fetchWithAuth('/api/v1/sources', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newSource)
+        body: JSON.stringify(newSource),
       });
       const data = await res.json();
       if (data.success) {
-        fetch('/api/v1/sources').then(r => r.json()).then(d => { if(d.success) setSources(d.data); });
+        triggerToast(`تمت إضافة المصدر (${newSource.name}) بنجاح`);
+        refreshAllData();
       }
-    };
+    } catch {
+      triggerToast('حدث خطأ أثناء إضافة المصدر');
+    }
+  };
 
   const handleToggleSourceStatus = async (id: string) => {
-      // We would call a toggle API here, for now just refetch after a mock toggle or implement toggle API
-      const res = await fetch(`/api/v1/sources/${id}/toggle`, { method: 'POST' });
+    try {
+      const res = await AuthService.fetchWithAuth(`/api/v1/sources/${id}/toggle`, { method: 'POST' });
       if (res.ok) {
-        fetch('/api/v1/sources').then(r => r.json()).then(d => { if(d.success) setSources(d.data); });
+        triggerToast('تم تحديث حالة المصدر بنجاح');
+        refreshAllData();
       }
-    };
+    } catch {
+      triggerToast('تعذر تحديث حالة المصدر');
+    }
+  };
 
   // User Operations
   const handleAddUser = (newUser: Omit<EnterpriseUser, 'id'>) => {

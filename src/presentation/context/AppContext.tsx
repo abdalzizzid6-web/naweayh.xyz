@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { UserProfile, UserRole } from '../../core';
+import { AuthService } from '../../services/AuthService';
 
 export type NavTab =
   | 'portal'
@@ -37,13 +38,14 @@ interface AppContextType {
   sourceSlug: string | null;
   searchQuery: string | null;
   isNotFound: boolean;
-  currentUser: UserProfile;
-  setCurrentUser: React.Dispatch<React.SetStateAction<UserProfile>>;
+  currentUser: UserProfile | null;
+  setCurrentUser: React.Dispatch<React.SetStateAction<UserProfile | null>>;
   handleRoleChange: (newRole: UserRole) => void;
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
   notificationsOpen: boolean;
   setNotificationsOpen: (open: boolean) => void;
+  isAuthLoading: boolean;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -59,15 +61,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isNotFound, setIsNotFound] = useState<boolean>(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
 
-  const [currentUser, setCurrentUser] = useState<UserProfile>({
-    id: 'u-news-editor-90',
-    name: 'Alexander Safara',
-    email: 'editor@naweayh.xyz',
-    role: 'System Admin',
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=150',
-    department: 'غرفة الأخبار — OmniNews',
-  });
+  useEffect(() => {
+    AuthService.verify().then(user => {
+      if (user) {
+        setCurrentUser({
+          id: user.id.toString(),
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=150',
+          department: 'غرفة الأخبار — OmniNews',
+        });
+      }
+      setIsAuthLoading(false);
+    });
+  }, []);
 
   const syncPathToTab = (pathname: string) => {
     setCurrentPath(pathname);
@@ -200,6 +211,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setSidebarOpen,
         notificationsOpen,
         setNotificationsOpen,
+        isAuthLoading,
       }}
     >
       {children}

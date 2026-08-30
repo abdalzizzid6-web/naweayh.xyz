@@ -76,18 +76,45 @@ newsApiRouter.get(['/v1/sources/stats', '/sources/stats'], async (_req, res) => 
 // ==========================================
 // 0. RBAC MIDDLEWARE FOR ADMIN ENDPOINTS
 // ==========================================
-const checkAdminRole = (req: Request, res: Response, next: NextFunction) => {
-  const roleHeader = (req.headers['x-user-role'] || req.headers['authorization']) as string;
-  const allowedRoles = ['Super Admin', 'Admin', 'Editor-in-Chief', 'Editor', 'Author', 'Moderator', 'Analyst'];
+import jwt from 'jsonwebtoken';
+import { getJwtSecret } from './authRouter';
 
-  if (!roleHeader || !allowedRoles.some(r => roleHeader.includes(r))) {
+const checkAdminRole = (req: Request, res: Response, next: NextFunction) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(403).json({
       success: false,
       code: 'FORBIDDEN',
-      message: 'غير مصرح لك بالوصول. يتطلب هذا الإجراء صلاحيات إدارية (RBAC: 403 Forbidden)',
+      message: 'غير مصرح لك بالوصول. الرجاء تسجيل الدخول.',
     });
   }
-  next();
+
+  const token = authHeader.split(' ')[1];
+  try {
+    const secret = getJwtSecret();
+    const decoded = jwt.verify(token, secret, {
+      issuer: 'naw3iya-auth-service',
+    }) as any;
+    const userRole = decoded.role;
+    const allowedRoles = ['System Admin', 'Super Admin', 'Admin', 'Editor-in-Chief', 'Editor', 'Author', 'Moderator', 'Analyst'];
+
+    if (!userRole || !allowedRoles.includes(userRole)) {
+      return res.status(403).json({
+        success: false,
+        code: 'FORBIDDEN',
+        message: 'غير مصرح لك بالوصول (RBAC Enforcement).',
+      });
+    }
+
+    (req as any).user = decoded;
+    next();
+  } catch (err) {
+    return res.status(401).json({
+      success: false,
+      code: 'UNAUTHORIZED',
+      message: 'الجلسة منتهية أو الرمز غير صالح',
+    });
+  }
 };
 
 // ==========================================
@@ -375,10 +402,10 @@ newsApiRouter.get(['/v1/news/latest', '/news/latest'], async (req, res) => {
 });
 
 // POST /api/v1/sources/:id/toggle
-newsApiRouter.post('/v1/sources/:id/toggle', async (req, res) => {
+newsApiRouter.post('/v1/sources/:id/toggle', checkAdminRole, async (req, res) => {
   try {
     const { id } = req.params;
-    const dbRes = await pool.query('UPDATE news_sources SET enabled = NOT enabled, status = CASE WHEN enabled = false THEN \'Active\' ELSE \'Paused\' END WHERE id = $1 RETURNING *', [id]);
+    const dbRes = await pool.query('UPDATE news_sources SET enabled = NOT enabled WHERE id = $1 RETURNING *', [id]);
     res.json({ success: true, data: dbRes.rows[0] });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
@@ -604,6 +631,212 @@ newsApiRouter.get(['/v1/news/detail/:slug', '/v1/news/:slug', '/news/detail/:slu
   }
 });
 
+// POST /api/v1/news - Create new article (Admin)
+newsApiRouter.post(['/v1/news', '/news'], checkAdminRole, async (req, res) => {
+  try {
+    const body = req.body;
+    const cleanTitle = (body.title || '').trim();
+    if (!cleanTitle) {
+      return res.status(400).json({ success: false, message: 'عنوان الخبر مطلوب' });
+    }
+
+    const slug = body.slug || cleanTitle.toLowerCase().replace(/[^\u0621-\u064Aa-z0-9]+/gi, '-').slice(0, 150) + '-' + Date.now();
+    const cleanSummary = (body.summary || body.excerpt || cleanTitle).trim();
+    const rawContent = (body.content || body.formattedBody || cleanSummary).trim();
+    const category = body.category || 'أخبار عامة';
+    const country = body.country || 'اليمن';
+    const mainImage = body.mainImage || 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&w=800&q=80';
+    const isBreaking = Boolean(body.isBreaking);
+    const sourceId = body.sourceId ? parseInt(body.sourceId, 10) : 1;
+
+    try {
+      const insertRes = await pool.query(
+        `INSERT INTO news_articles (
+          title, slug, summary, content, formatted_body, content_html, content_text,
+          category, country, cover_image_url, is_breaking, is_trending, source_id,
+          published_at, trust_score, reading_time_minutes, is_full_content_available,
+          content_status, content_classification
+        ) VALUES (
+          $1, $2, $3, $4, $4, $4, $4,
+          $5, $6, $7, $8, false, $9,
+          NOW(), 95, 2, true,
+          'full', 'FULL_PERMITTED_CONTENT'
+        ) RETURNING *`,
+        [cleanTitle, slug, cleanSummary, rawContent, category, country, mainImage, isBreaking, sourceId]
+      );
+
+      if (insertRes.rows.length > 0) {
+        const created = mapDbRowToArticle(insertRes.rows[0]);
+        articlesRepository.add(created);
+        return res.status(201).json({ success: true, data: created });
+      }
+    } catch (dbErr) {
+      console.warn('[Create Article DB fallback]:', dbErr);
+    }
+
+    const fallbackArticle = {
+      id: String(Date.now()),
+      title: cleanTitle,
+      slug,
+      summary: cleanSummary,
+      content: rawContent,
+      formattedBody: rawContent,
+      category,
+      country,
+      mainImage,
+      publishDate: new Date().toISOString(),
+      isBreaking,
+      isTrending: false,
+      isFullContentAvailable: true,
+      contentStatus: 'full' as const,
+      trustScore: 95,
+      viewsCount: 1,
+      sharesCount: 0,
+      bookmarksCount: 0,
+      sources: [
+        {
+          id: String(sourceId),
+          name: 'فريق التحرير',
+          logo: 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=120&q=80',
+          url: 'https://naweayh.xyz',
+          publishedAt: new Date().toISOString(),
+          reliabilityScore: 95,
+          isPrimary: true,
+        },
+      ],
+      paragraphs: [rawContent],
+      readTimeMinutes: 2,
+    };
+    articlesRepository.add(fallbackArticle as any);
+    res.status(201).json({ success: true, data: fallbackArticle });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// PUT /api/v1/news/:id - Update article (Admin)
+newsApiRouter.put(['/v1/news/:id', '/news/:id'], checkAdminRole, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const body = req.body;
+    const isNumericId = /^\d+$/.test(id);
+
+    try {
+      const updateQuery = isNumericId
+        ? `UPDATE news_articles 
+           SET title = COALESCE($1, title),
+               summary = COALESCE($2, summary),
+               content = COALESCE($3, content),
+               formatted_body = COALESCE($3, formatted_body),
+               category = COALESCE($4, category),
+               country = COALESCE($5, country),
+               cover_image_url = COALESCE($6, cover_image_url),
+               is_breaking = COALESCE($7, is_breaking),
+               updated_at = NOW()
+           WHERE id = $8
+           RETURNING *`
+        : `UPDATE news_articles 
+           SET title = COALESCE($1, title),
+               summary = COALESCE($2, summary),
+               content = COALESCE($3, content),
+               formatted_body = COALESCE($3, formatted_body),
+               category = COALESCE($4, category),
+               country = COALESCE($5, country),
+               cover_image_url = COALESCE($6, cover_image_url),
+               is_breaking = COALESCE($7, is_breaking),
+               updated_at = NOW()
+           WHERE slug = $8
+           RETURNING *`;
+
+      const dbRes = await pool.query(updateQuery, [
+        body.title,
+        body.summary,
+        body.content || body.formattedBody,
+        body.category,
+        body.country,
+        body.mainImage,
+        body.isBreaking !== undefined ? Boolean(body.isBreaking) : null,
+        isNumericId ? parseInt(id, 10) : id,
+      ]);
+
+      if (dbRes.rows.length > 0) {
+        const updated = mapDbRowToArticle(dbRes.rows[0]);
+        articlesRepository.save(updated);
+        return res.json({ success: true, data: updated });
+      }
+    } catch (dbErr) {
+      console.warn('[Update Article DB fallback]:', dbErr);
+    }
+
+    const localArt = articlesRepository.getById(id) || articlesRepository.getBySlug(id);
+    if (!localArt) {
+      return res.status(404).json({ success: false, message: 'المقال غير موجود' });
+    }
+
+    const updated = {
+      ...localArt,
+      ...body,
+      updatedAt: new Date().toISOString(),
+    };
+    articlesRepository.save(updated);
+    res.json({ success: true, data: updated });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /api/v1/news/:id/toggle-breaking - Toggle breaking state (Admin)
+newsApiRouter.post(['/v1/news/:id/toggle-breaking', '/news/:id/toggle-breaking'], checkAdminRole, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const isNumericId = /^\d+$/.test(id);
+
+    try {
+      const toggleQuery = isNumericId
+        ? `UPDATE news_articles SET is_breaking = NOT is_breaking, updated_at = NOW() WHERE id = $1 RETURNING *`
+        : `UPDATE news_articles SET is_breaking = NOT is_breaking, updated_at = NOW() WHERE slug = $1 RETURNING *`;
+
+      const dbRes = await pool.query(toggleQuery, [isNumericId ? parseInt(id, 10) : id]);
+      if (dbRes.rows.length > 0) {
+        const updated = mapDbRowToArticle(dbRes.rows[0]);
+        articlesRepository.save(updated);
+        return res.json({ success: true, data: updated });
+      }
+    } catch {}
+
+    const localArt = articlesRepository.getById(id) || articlesRepository.getBySlug(id);
+    if (localArt) {
+      localArt.isBreaking = !localArt.isBreaking;
+      articlesRepository.save(localArt);
+      return res.json({ success: true, data: localArt });
+    }
+
+    res.status(404).json({ success: false, message: 'المقال غير موجود' });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// DELETE /api/v1/news/:id - Delete article (Admin)
+newsApiRouter.delete(['/v1/news/:id', '/news/:id'], checkAdminRole, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const isNumericId = /^\d+$/.test(id);
+
+    try {
+      const delQuery = isNumericId
+        ? `DELETE FROM news_articles WHERE id = $1`
+        : `DELETE FROM news_articles WHERE slug = $1`;
+      await pool.query(delQuery, [isNumericId ? parseInt(id, 10) : id]);
+    } catch {}
+
+    articlesRepository.delete(id);
+    res.json({ success: true, message: 'تم حذف المقال بنجاح' });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // ==========================================
 // 2. CATEGORIES, COUNTRIES & SOURCES ENDPOINTS
 // ==========================================
@@ -646,7 +879,7 @@ newsApiRouter.get(['/v1/sources', '/sources'], async (_req, res) => {
 });
 
 // POST /api/v1/sources - Add new news source
-newsApiRouter.post('/v1/sources', async (req, res) => {
+newsApiRouter.post('/v1/sources', checkAdminRole, async (req, res) => {
   try {
     const { name, url, feedUrl, logo, country, language, category, type, trustScore, priority, enabled } = req.body;
     if (!name || !url) {
@@ -673,7 +906,7 @@ newsApiRouter.post('/v1/sources', async (req, res) => {
 });
 
 // POST /api/v1/sources/:id/test - Test HTTP Connection to Source Feed
-newsApiRouter.post('/v1/sources/:id/test', async (req, res) => {
+newsApiRouter.post('/v1/sources/:id/test', checkAdminRole, async (req, res) => {
   try {
     const { id } = req.params;
     const dbRes = await pool.query('SELECT * FROM news_sources WHERE id = $1', [id]);
@@ -717,7 +950,7 @@ newsApiRouter.post('/v1/sources/:id/test', async (req, res) => {
 });
 
 // POST /api/v1/sources/discover - Automated Feed Discovery Engine
-newsApiRouter.post('/v1/sources/discover', async (req, res) => {
+newsApiRouter.post('/v1/sources/discover', checkAdminRole, async (req, res) => {
   try {
     const { url } = req.body;
     if (!url) {
@@ -738,7 +971,7 @@ newsApiRouter.post('/v1/sources/discover', async (req, res) => {
 });
 
 // POST /api/v1/sources/bulk-import - Bulk Source Importer (OPML, CSV, JSON, URLs)
-newsApiRouter.post('/v1/sources/bulk-import', async (req, res) => {
+newsApiRouter.post('/v1/sources/bulk-import', checkAdminRole, async (req, res) => {
   try {
     const { content, format, defaultCountry, defaultCategory } = req.body;
     if (!content) {
@@ -898,7 +1131,7 @@ newsApiRouter.get('/v1/sources/catalog', async (req, res) => {
 });
 
 // POST /api/v1/sources/:id/verify - Re-verify Source
-newsApiRouter.post('/v1/sources/:id/verify', async (req, res) => {
+newsApiRouter.post('/v1/sources/:id/verify', checkAdminRole, async (req, res) => {
   try {
     const { id } = req.params;
     const dbRes = await pool.query('SELECT * FROM news_sources WHERE id = $1', [id]);
@@ -925,7 +1158,7 @@ newsApiRouter.post('/v1/sources/:id/verify', async (req, res) => {
 });
 
 // PUT /api/v1/sources/:id - Update source details
-newsApiRouter.put('/v1/sources/:id', async (req, res) => {
+newsApiRouter.put('/v1/sources/:id', checkAdminRole, async (req, res) => {
   try {
     const { id } = req.params;
     const { name, nameArabic, url, feedUrl, country, category, priority, trustScore, fetchInterval } = req.body;
@@ -953,7 +1186,7 @@ newsApiRouter.put('/v1/sources/:id', async (req, res) => {
 });
 
 // DELETE /api/v1/sources/:id - Delete source
-newsApiRouter.delete('/v1/sources/:id', async (req, res) => {
+newsApiRouter.delete('/v1/sources/:id', checkAdminRole, async (req, res) => {
   try {
     const { id } = req.params;
     await pool.query('DELETE FROM news_sources WHERE id = $1', [id]);
@@ -1170,23 +1403,32 @@ newsApiRouter.get('/seo/breaking-news.xml', (_req, res) => {
 // GET /api/v1/admin/stats
 newsApiRouter.get('/v1/admin/stats', checkAdminRole, async (_req, res) => {
   try {
-    const articles = articlesRepository.getAll();
-    const totalViews = articles.reduce((acc, a) => acc + a.viewsCount, 0);
-    const totalShares = articles.reduce((acc, a) => acc + a.sharesCount, 0);
-    const totalSaves = articles.reduce((acc, a) => acc + a.bookmarksCount, 0);
-    const sources = sourcesRepository.getAll();
+    const artRes = await pool.query('SELECT count(*) as count, COALESCE(sum(views_count), 0) as views, COALESCE(sum(shares_count), 0) as shares, COALESCE(sum(saves_count), 0) as saves FROM news_articles');
+    const srcRes = await pool.query('SELECT count(*) as total, count(*) FILTER (WHERE enabled = true) as active FROM news_sources');
+    const storyRes = await pool.query('SELECT count(*) as count FROM story_clusters');
+    const usersRes = await pool.query('SELECT count(*) as count FROM users');
+
+    const totalArticles = parseInt(artRes.rows[0]?.count || '0', 10);
+    const totalViews = parseInt(artRes.rows[0]?.views || '0', 10);
+    const totalShares = parseInt(artRes.rows[0]?.shares || '0', 10);
+    const totalSaves = parseInt(artRes.rows[0]?.saves || '0', 10);
+    const totalSources = parseInt(srcRes.rows[0]?.total || '0', 10);
+    const activeSources = parseInt(srcRes.rows[0]?.active || '0', 10);
+    const totalStories = parseInt(storyRes.rows[0]?.count || '0', 10);
+    const totalUsers = parseInt(usersRes.rows[0]?.count || '0', 10);
 
     res.json({
       success: true,
       data: {
-        totalArticles: articles.length,
+        totalArticles,
         totalViews,
         uniqueReaders: Math.round(totalViews * 0.72),
         totalShares,
         totalSaves,
-        activeSources: sources.filter(s => s.status === 'Active').length,
-        avgReadingTimeMinutes: 3.4,
-        topCategory: 'اليمن',
+        totalSources,
+        activeSources,
+        totalStories,
+        totalUsers,
         systemStatus: 'healthy',
       },
     });

@@ -20,9 +20,20 @@ let isPglite = false;
 const isServerless = !!process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME !== undefined;
 
 if (connectionString) {
+  const requiresSsl = process.env.NODE_ENV === 'production' || 
+    connectionString.includes('sslmode=require') || 
+    connectionString.includes('neon.tech') || 
+    connectionString.includes('supabase.co') ||
+    process.env.DATABASE_SSL === 'true';
+
+  const sslConfig = requiresSsl ? {
+    rejectUnauthorized: process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === 'true',
+    ...(process.env.DATABASE_SSL_CA ? { ca: process.env.DATABASE_SSL_CA } : {})
+  } : false;
+
   const pgPool = new Pool({
     connectionString,
-    ssl: (process.env.NODE_ENV === 'production' || connectionString.includes('sslmode=require') || connectionString.includes('neon.tech') || connectionString.includes('supabase.co')) ? { rejectUnauthorized: false } : false,
+    ssl: sslConfig,
     max: isServerless ? 3 : 10,
     idleTimeoutMillis: isServerless ? 5000 : 30000,
     connectionTimeoutMillis: 5000,
@@ -33,10 +44,12 @@ if (connectionString) {
     connect: async () => pgPool.connect(),
   };
 } else {
-  if (process.env.NODE_ENV === 'production' && !isServerless) {
-    console.warn('WARNING: DATABASE_URL is not set in production. Using PGlite in-memory fallback.');
+  if (process.env.NODE_ENV === 'production') {
+    console.error('FATAL ERROR: DATABASE_URL environment variable is missing in Production! System will not start with fallback.');
+    throw new Error('CRITICAL_DATABASE_ERROR: DATABASE_URL must be configured in Production.');
   }
-  console.log('Using PGlite (Local PostgreSQL) since DATABASE_URL is missing (Development/Test/Fallback Mode).');
+  
+  console.warn('NOTICE: DATABASE_URL is missing. Using local PGlite for local testing/development only.');
   isPglite = true;
   const pglite = new PGlite();
   
@@ -230,6 +243,57 @@ export async function initDb() {
       }
       console.log(`Seeded ${INITIAL_PRODUCTION_ARTICLES.length} production articles.`);
     }
+
+    // Seed roles and admin user
+    const rolesCountRes = await pool.query('SELECT COUNT(*) as count FROM roles');
+    if (parseInt(rolesCountRes.rows[0]?.count || '0', 10) === 0) {
+      await pool.query(`INSERT INTO roles (name, description) VALUES ('System Admin', 'Full access to all systems') ON CONFLICT DO NOTHING`);
+      await pool.query(`INSERT INTO roles (name, description) VALUES ('Editor', 'Can manage news and sources') ON CONFLICT DO NOTHING`);
+      await pool.query(`INSERT INTO roles (name, description) VALUES ('User', 'Regular user') ON CONFLICT DO NOTHING`);
+    }
+
+    const usersCountRes = await pool.query('SELECT COUNT(*) as count FROM users');
+    if (parseInt(usersCountRes.rows[0]?.count || '0', 10) === 0) {
+      const adminEmail = process.env.ADMIN_EMAIL;
+      const initialPassword = process.env.ADMIN_INITIAL_PASSWORD;
+      
+      if (adminEmail && initialPassword) {
+        const bcrypt = await import('bcrypt');
+        const saltRounds = 12;
+        const passwordHash = await bcrypt.hash(initialPassword, saltRounds);
+        
+        await pool.query(`
+          INSERT INTO users (username, email, password_hash, role_id) 
+          VALUES (
+            'admin', 
+            $1, 
+            $2, 
+            (SELECT id FROM roles WHERE name = 'System Admin' LIMIT 1)
+          ) ON CONFLICT DO NOTHING`,
+          [adminEmail, passwordHash]
+        );
+        console.log(`Initialized primary admin account for (${adminEmail}) with bcrypt.`);
+      } else if (process.env.NODE_ENV !== 'production') {
+        // Safe dev fallback only for local environment when explicit credentials are not provided
+        const bcrypt = await import('bcrypt');
+        const defaultDevPassword = process.env.DEV_ADMIN_PASSWORD || 'DevAdmin#2026!Secure';
+        const passwordHash = await bcrypt.hash(defaultDevPassword, 10);
+        await pool.query(`
+          INSERT INTO users (username, email, password_hash, role_id) 
+          VALUES (
+            'admin', 
+            'admin@naweayh.xyz', 
+            $1, 
+            (SELECT id FROM roles WHERE name = 'System Admin' LIMIT 1)
+          ) ON CONFLICT DO NOTHING`,
+          [passwordHash]
+        );
+        console.log('NOTICE: Development admin created. For production, please set ADMIN_EMAIL and ADMIN_INITIAL_PASSWORD.');
+      } else {
+        console.warn('WARNING: No users exist and ADMIN_EMAIL / ADMIN_INITIAL_PASSWORD are not set. Admin registration will require direct DB seed.');
+      }
+    }
+
   } catch (error) {
     console.error('Failed to initialize database schema:', error);
   }

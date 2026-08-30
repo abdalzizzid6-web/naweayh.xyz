@@ -1,5 +1,6 @@
 import express, { Express } from 'express';
 import { newsApiRouter, mapDbRowToArticle } from './api/newsRouter';
+import { authRouter } from './api/authRouter';
 import { storiesApiRouter } from './api/storiesRouter';
 import { aiPipelineService } from './services/AIPipelineService';
 import { seoEngineService } from '../src/seo-engine/SEOEngineService';
@@ -82,6 +83,7 @@ export function createExpressApp(): Express {
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
   // API Routes
+  app.use('/api/v1/auth', authRouter);
   app.use('/api', newsApiRouter);
   app.use('/api', storiesApiRouter);
 

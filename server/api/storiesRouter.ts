@@ -1,21 +1,35 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { pool } from '../db/connection';
 import { storyClusteringService } from '../services/StoryClusteringService';
+import jwt from 'jsonwebtoken';
+import { getJwtSecret } from './authRouter';
 
 export const storiesApiRouter = Router();
 
 const checkAdminRole = (req: Request, res: Response, next: NextFunction) => {
-  const roleHeader = (req.headers['x-user-role'] || req.headers['authorization']) as string;
-  const allowedRoles = ['Super Admin', 'Admin', 'Editor-in-Chief', 'Editor', 'Author', 'Moderator', 'Analyst'];
-
-  if (!roleHeader || !allowedRoles.some(r => roleHeader.includes(r))) {
-    return res.status(403).json({
-      success: false,
-      code: 'FORBIDDEN',
-      message: 'غير مصرح لك بالوصول. يتطلب هذا الإجراء صلاحيات إدارية (RBAC: 403 Forbidden)',
-    });
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(403).json({ success: false, code: 'FORBIDDEN', message: 'غير مصرح لك بالوصول. الرجاء تسجيل الدخول.' });
   }
-  next();
+
+  const token = authHeader.split(' ')[1];
+  try {
+    const secret = getJwtSecret();
+    const decoded = jwt.verify(token, secret, {
+      issuer: 'naw3iya-auth-service',
+    }) as any;
+    const userRole = decoded.role;
+    const allowedRoles = ['System Admin', 'Super Admin', 'Admin', 'Editor-in-Chief', 'Editor', 'Author', 'Moderator', 'Analyst'];
+
+    if (!userRole || !allowedRoles.includes(userRole)) {
+      return res.status(403).json({ success: false, code: 'FORBIDDEN', message: 'غير مصرح لك بالوصول (RBAC).' });
+    }
+    
+    (req as any).user = decoded;
+    next();
+  } catch (err) {
+    return res.status(401).json({ success: false, code: 'UNAUTHORIZED', message: 'الجلسة منتهية أو غير صالحة' });
+  }
 };
 
 // GET /api/v1/stories - List story clusters
