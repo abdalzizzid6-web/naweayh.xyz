@@ -1,6 +1,7 @@
 import { socialChannelsRepository } from '../repositories/socialChannelsRepository';
 import { socialPostsRepository } from '../repositories/socialPostsRepository';
 import { auditRepository } from '../repositories/auditRepository';
+import { buildArticleCanonicalUrl } from '../core/utils/urlUtils';
 import { NewsArticle, SocialChannelConfig, SocialPostItem, SocialPlatform } from '../core';
 
 export class SocialPublisherService {
@@ -80,7 +81,7 @@ export class SocialPublisherService {
       if (this.isChannelEligibleForArticle(channel, article)) {
         const formattedText = this.formatPostContent(channel, article);
         const hashtags = channel.defaultHashtags || ['#أخبار_نوعية', `#${article.category}`];
-        const canonicalUrl = article.seoMeta?.canonicalUrl || `https://naweayh.xyz/article/${article.id}`;
+        const canonicalUrl = article.seoMeta?.canonicalUrl || buildArticleCanonicalUrl(article.slug || article.id);
         const primarySource = article.sources && article.sources[0] ? article.sources[0].name : 'مصدر إخباري مصفى';
 
         const post = socialPostsRepository.schedulePost({
@@ -207,7 +208,7 @@ export class SocialPublisherService {
 
   private formatPostContent(channel: SocialChannelConfig, article: NewsArticle): string {
     const primarySource = article.sources && article.sources[0] ? article.sources[0].name : 'أخبار نوعية';
-    const canonicalUrl = article.seoMeta?.canonicalUrl || `https://naweayh.xyz/article/${article.id}`;
+    const canonicalUrl = article.seoMeta?.canonicalUrl || buildArticleCanonicalUrl(article.slug || article.id);
 
     return channel.template
       .replace('{title}', article.title)

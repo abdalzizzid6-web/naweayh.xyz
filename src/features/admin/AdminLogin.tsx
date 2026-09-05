@@ -19,9 +19,9 @@ export const AdminLogin: React.FC = () => {
       const res = await fetch('/api/v1/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: username, password })
+        body: JSON.stringify({ email: username.trim(), password })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       
       if (res.ok && data.success) {
         AuthService.setToken(data.token);
@@ -34,7 +34,7 @@ export const AdminLogin: React.FC = () => {
           department: 'غرفة الأخبار — OmniNews'
         });
       } else {
-        setError(data.message || 'فشل تسجيل الدخول');
+        setError(data.message || 'فشل تسجيل الدخول: يرجى التحقق من صحة البيانات');
       }
     } catch (err) {
       setError('حدث خطأ أثناء الاتصال بالخادم');

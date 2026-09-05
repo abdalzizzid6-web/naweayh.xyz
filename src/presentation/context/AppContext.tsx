@@ -93,6 +93,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const slug = decodeURIComponent(pathname.replace('/news/', '').split('/')[0]);
       setArticleSlug(slug || null);
       setActiveTabState('portal');
+    } else if (pathname.startsWith('/article/')) {
+      const slug = decodeURIComponent(pathname.replace('/article/', '').split('/')[0]);
+      setArticleSlug(slug || null);
+      setActiveTabState('portal');
     } else if (pathname.startsWith('/story/')) {
       const slug = decodeURIComponent(pathname.replace('/story/', '').split('/')[0]);
       setStorySlug(slug || null);

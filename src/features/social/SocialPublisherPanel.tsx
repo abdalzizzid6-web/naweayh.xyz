@@ -4,6 +4,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { socialPublisherService } from '../../social-engine/SocialPublisherService';
 import { articlesRepository } from '../../repositories/articlesRepository';
+import { buildArticleCanonicalUrl } from '../../core/utils/urlUtils';
 import { NEWS_CATEGORIES, COUNTRIES } from '../../services/newsService';
 import { SocialChannelConfig, SocialPostItem, SocialPlatform, NewsArticle } from '../../types';
 import {
@@ -51,7 +52,7 @@ export const SocialPublisherPanel: React.FC = () => {
   const [postTitle, setPostTitle] = useState<string>(selectedArticle?.title || '');
   const [postSummary, setPostSummary] = useState<string>(selectedArticle?.summary || '');
   const [postImage, setPostImage] = useState<string>(selectedArticle?.mainImage || '');
-  const [postUrl, setPostUrl] = useState<string>(selectedArticle?.seoMeta?.canonicalUrl || `https://naweayh.xyz/article/${selectedArticle?.id}`);
+  const [postUrl, setPostUrl] = useState<string>(selectedArticle?.seoMeta?.canonicalUrl || buildArticleCanonicalUrl(selectedArticle?.slug || selectedArticle?.id));
   const [hashtags, setHashtags] = useState<string>('#أخبار_نوعية #أخبار_عاجلة #الشرق_الأوسط');
 
   // Selected Target Platforms for Studio
@@ -90,7 +91,7 @@ export const SocialPublisherPanel: React.FC = () => {
       setPostTitle(art.title);
       setPostSummary(art.summary);
       setPostImage(art.mainImage);
-      setPostUrl(art.seoMeta?.canonicalUrl || `https://naweayh.xyz/article/${art.id}`);
+      setPostUrl(art.seoMeta?.canonicalUrl || buildArticleCanonicalUrl(art.slug || art.id));
       setHashtags(`#أخبار_نوعية #${art.category} #${art.country}`);
     }
   };

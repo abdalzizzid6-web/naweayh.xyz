@@ -4,6 +4,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { pushNotificationService } from '../../notifications/PushNotificationService';
 import { articlesRepository } from '../../repositories/articlesRepository';
+import { buildArticleCanonicalUrl } from '../../core/utils/urlUtils';
 import { NEWS_CATEGORIES, COUNTRIES } from '../../services/newsService';
 import {
   PushNotificationCampaign,
@@ -80,7 +81,7 @@ export const PushNotificationPanel: React.FC = () => {
   const [titleInput, setTitleInput] = useState<string>('🔴 عاجل | قمة الذكاء الاصطناعي تعلن استثمارات بـ 15 مليار دولار في الرياض');
   const [bodyInput, setBodyInput] = useState<string>('تغطية شاملة للإعلان عن ميثاق حوكمة الذكاء الاصطناعي وبناء مراكز بيانات عملاقة فائقة القدرة.');
   const [imageUrlInput, setImageUrlInput] = useState<string>('https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800');
-  const [articleUrlInput, setArticleUrlInput] = useState<string>('https://naweayh.xyz/article/art-1');
+  const [articleUrlInput, setArticleUrlInput] = useState<string>(buildArticleCanonicalUrl('saudi-ai-initiative-2026'));
 
   // Provider Selection: Firebase FCM, OneSignal, Hybrid Dual
   const [selectedProvider, setSelectedProvider] = useState<NotificationProvider>('Hybrid_Dual');
@@ -120,7 +121,7 @@ export const PushNotificationPanel: React.FC = () => {
       setTitleInput(`🔴 عاجل | ${art.title}`);
       setBodyInput(art.summary);
       setImageUrlInput(art.mainImage);
-      setArticleUrlInput(art.seoMeta?.canonicalUrl || `https://naweayh.xyz/article/${art.id}`);
+      setArticleUrlInput(art.seoMeta?.canonicalUrl || buildArticleCanonicalUrl(art.slug || art.id));
       setTargetCategory(art.category);
       setTargetCountry(art.country);
       triggerToast(`تم استيراد بيانات الخبر (${art.category} - ${art.country}) بنجاح`);

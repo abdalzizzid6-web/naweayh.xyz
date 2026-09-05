@@ -65,16 +65,42 @@ export async function syncDatabaseArticlesToRepository(): Promise<number> {
 export function createExpressApp(): Express {
   const app = express();
 
-  // Canonical Domain & Protocol Enforcement (https://naweayh.xyz)
+  // Canonical Domain, Protocol & URL Normalization Enforcement (https://naweayh.xyz)
   app.use((req, res, next) => {
     const host = req.headers.host || '';
     const isWww = host.startsWith('www.');
     const proto = req.headers['x-forwarded-proto'] || req.protocol;
 
+    // 1. Redirect www and non-https traffic to clean https://naweayh.xyz
     if (isWww || (proto === 'http' && (host.includes('naweayh.xyz') || host.includes('localhost') === false))) {
       const cleanHost = host.replace(/^www\./, '');
       return res.redirect(301, `https://${cleanHost || 'naweayh.xyz'}${req.originalUrl}`);
     }
+
+    // 2. Catch & normalize malformed crawler URLs (e.g. /https://naweayh.xyz/..., /https://www.naweayh.xyz/..., /https:/...)
+    const rawUrl = req.originalUrl || req.url;
+    const malformedHttpMatch = rawUrl.match(/^\/+(https?:\/+(?:www\.)?(?:naweayh\.xyz)?)(\/.*)?$/i);
+    if (malformedHttpMatch) {
+      const restPath = malformedHttpMatch[2] || '/';
+      return res.redirect(301, `https://naweayh.xyz${restPath}`);
+    }
+
+    // 3. Catch direct /article/:slugOrId legacy links and redirect 301 to /news/:slugOrId
+    if (req.path.startsWith('/article/')) {
+      const articleIdOrSlug = req.path.replace('/article/', '');
+      return res.redirect(301, `https://naweayh.xyz/news/${articleIdOrSlug}`);
+    }
+
+    // 4. Catch legacy index query parameters like ?cat=... or ?p=... and redirect 301 to canonical clean home
+    if (req.path === '/' && (req.query.cat !== undefined || req.query.p !== undefined || req.query.page_id !== undefined)) {
+      return res.redirect(301, 'https://naweayh.xyz/');
+    }
+
+    // 5. Catch stray /a or /https://naweayh.xyz/a links
+    if (req.path === '/a') {
+      return res.redirect(301, 'https://naweayh.xyz/');
+    }
+
     next();
   });
 
@@ -215,6 +241,7 @@ export function createExpressApp(): Express {
   // Root level SEO routes
   app.get('/sitemap.xml', serveMasterSitemap);
   app.get('/sitemap-news.xml', serveNewsSitemap);
+  app.get('/news-sitemap.xml', serveNewsSitemap);
   app.get('/sitemap-pages.xml', servePagesSitemap);
   app.get('/sitemap-categories.xml', serveCategoriesSitemap);
   app.get('/sitemap-sources.xml', serveSourcesSitemap);
@@ -222,6 +249,7 @@ export function createExpressApp(): Express {
   app.get('/sitemap-videos.xml', serveVideoSitemap);
   app.get('/rss.xml', serveRSS);
   app.get('/feed.xml', serveRSS);
+  app.get('/breaking-news.xml', serveNewsSitemap);
   app.get('/robots.txt', serveRobots);
 
   // /api/seo/* paths for Vercel rewrites

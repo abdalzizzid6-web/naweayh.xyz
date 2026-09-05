@@ -2,6 +2,7 @@ import { NewsArticle, ArticleSourceInfo } from '../core/domain/types';
 import { articlesRepository } from '../repositories/articlesRepository';
 import { aiEngineService, AIPipelineResult } from '../ai-engine/AIEngineService';
 import { sourcesRepository } from '../repositories/sourcesRepository';
+import { buildArticleCanonicalUrl } from '../core/utils/urlUtils';
 
 export interface DeduplicationComparisonResult {
   titleSimilarityScore: number;     // 0 - 100
@@ -213,7 +214,7 @@ export class DuplicateDetectionEngine {
         title: aiResult.seoMeta.seoTitle,
         description: aiResult.seoMeta.metaDescription,
         keywords: aiResult.keywords,
-        canonicalUrl: `https://naweayh.xyz/news/${aiResult.seoMeta.slug}`,
+        canonicalUrl: buildArticleCanonicalUrl(aiResult.seoMeta.slug),
         schemaType: 'NewsArticle',
         openGraphImage: 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=1200&q=80',
       },

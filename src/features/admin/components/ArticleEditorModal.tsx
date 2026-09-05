@@ -3,6 +3,7 @@ import { NewsArticle } from '../../../core/domain/types';
 import { Card } from '../../../components/ui/Card';
 import { Button } from '../../../components/ui/Button';
 import { Badge } from '../../../components/ui/Badge';
+import { buildArticleCanonicalUrl } from '../../../core/utils/urlUtils';
 import {
   X,
   Sparkles,
@@ -197,7 +198,7 @@ export const ArticleEditorModal: React.FC<ArticleEditorModalProps> = ({
         title: seoTitle,
         description: seoDesc,
         keywords: [focusKeyword, ...tags],
-        canonicalUrl: `https://naweayh.xyz/article/${article?.id || 'new'}`,
+        canonicalUrl: buildArticleCanonicalUrl(article?.slug || article?.id || 'new'),
         schemaType: 'NewsArticle',
         openGraphImage: mainImage,
       },

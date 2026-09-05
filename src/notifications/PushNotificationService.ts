@@ -1,5 +1,6 @@
 import { notificationsRepository } from '../repositories/notificationsRepository';
 import { auditRepository } from '../repositories/auditRepository';
+import { buildArticleCanonicalUrl } from '../core/utils/urlUtils';
 import {
   PushNotificationCampaign,
   NotificationProvider,
@@ -209,7 +210,7 @@ export class PushNotificationService {
   public triggerBreakingNewsNotification(article: NewsArticle): PushNotificationCampaign {
     const title = `⚡️ عاجل | ${article.title}`;
     const body = article.summary;
-    const articleUrl = article.seoMeta?.canonicalUrl || `https://naweayh.xyz/article/${article.id}`;
+    const articleUrl = article.seoMeta?.canonicalUrl || buildArticleCanonicalUrl(article.slug || article.id);
 
     return this.sendOrScheduleCampaign({
       title,

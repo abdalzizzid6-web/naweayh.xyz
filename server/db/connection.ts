@@ -244,7 +244,7 @@ export async function initDb() {
       console.log(`Seeded ${INITIAL_PRODUCTION_ARTICLES.length} production articles.`);
     }
 
-    // Seed roles and admin user
+    // Seed roles
     const rolesCountRes = await pool.query('SELECT COUNT(*) as count FROM roles');
     if (parseInt(rolesCountRes.rows[0]?.count || '0', 10) === 0) {
       await pool.query(`INSERT INTO roles (name, description) VALUES ('System Admin', 'Full access to all systems') ON CONFLICT DO NOTHING`);
@@ -252,51 +252,55 @@ export async function initDb() {
       await pool.query(`INSERT INTO roles (name, description) VALUES ('User', 'Regular user') ON CONFLICT DO NOTHING`);
     }
 
-    const usersCountRes = await pool.query('SELECT COUNT(*) as count FROM users');
-    if (parseInt(usersCountRes.rows[0]?.count || '0', 10) === 0) {
-      const adminEmail = process.env.ADMIN_EMAIL;
-      const initialPassword = process.env.ADMIN_INITIAL_PASSWORD;
+    // Ensure System Admin account exists in users table
+    const adminEmail = process.env.ADMIN_EMAIL || 'admin@naweayh.xyz';
+    const adminUserRes = await pool.query(
+      "SELECT u.id, u.username, u.email FROM users u WHERE u.username = 'admin' OR u.email = $1 LIMIT 1",
+      [adminEmail]
+    );
+
+    if (adminUserRes.rows.length === 0) {
+      const bcrypt = await import('bcrypt');
+      const initialPassword = process.env.ADMIN_INITIAL_PASSWORD || process.env.DEV_ADMIN_PASSWORD || 'DevAdmin#2026!Secure';
+      const passwordHash = await bcrypt.hash(initialPassword, 12);
       
-      if (adminEmail && initialPassword) {
-        const bcrypt = await import('bcrypt');
-        const saltRounds = 12;
-        const passwordHash = await bcrypt.hash(initialPassword, saltRounds);
-        
-        await pool.query(`
-          INSERT INTO users (username, email, password_hash, role_id) 
-          VALUES (
-            'admin', 
-            $1, 
-            $2, 
-            (SELECT id FROM roles WHERE name = 'System Admin' LIMIT 1)
-          ) ON CONFLICT DO NOTHING`,
-          [adminEmail, passwordHash]
-        );
-        console.log(`Initialized primary admin account for (${adminEmail}) with bcrypt.`);
-      } else if (process.env.NODE_ENV !== 'production') {
-        // Safe dev fallback only for local environment when explicit credentials are not provided
-        const bcrypt = await import('bcrypt');
-        const defaultDevPassword = process.env.DEV_ADMIN_PASSWORD || 'DevAdmin#2026!Secure';
-        const passwordHash = await bcrypt.hash(defaultDevPassword, 10);
-        await pool.query(`
-          INSERT INTO users (username, email, password_hash, role_id) 
-          VALUES (
-            'admin', 
-            'admin@naweayh.xyz', 
-            $1, 
-            (SELECT id FROM roles WHERE name = 'System Admin' LIMIT 1)
-          ) ON CONFLICT DO NOTHING`,
-          [passwordHash]
-        );
-        console.log('NOTICE: Development admin created. For production, please set ADMIN_EMAIL and ADMIN_INITIAL_PASSWORD.');
-      } else {
-        console.warn('WARNING: No users exist and ADMIN_EMAIL / ADMIN_INITIAL_PASSWORD are not set. Admin registration will require direct DB seed.');
-      }
+      await pool.query(`
+        INSERT INTO users (username, email, password_hash, role_id, is_active) 
+        VALUES (
+          'admin', 
+          $1, 
+          $2, 
+          (SELECT id FROM roles WHERE name = 'System Admin' LIMIT 1),
+          TRUE
+        ) ON CONFLICT DO NOTHING`,
+        [adminEmail, passwordHash]
+      );
+      console.log(`Initialized primary admin account (${adminEmail}) successfully with bcrypt.`);
+    } else {
+      await pool.query(`
+        UPDATE users 
+        SET is_active = TRUE,
+            role_id = COALESCE(role_id, (SELECT id FROM roles WHERE name = 'System Admin' LIMIT 1))
+        WHERE id = $1`,
+        [adminUserRes.rows[0].id]
+      );
     }
 
   } catch (error) {
     console.error('Failed to initialize database schema:', error);
   }
+}
+
+let initPromise: Promise<void> | null = null;
+export async function ensureDbInitialized(): Promise<void> {
+  if (!initPromise) {
+    initPromise = initDb().catch((err) => {
+      console.error('Failed in ensureDbInitialized:', err);
+      initPromise = null;
+      throw err;
+    });
+  }
+  return initPromise;
 }
 
 export const dbSchemaDefinition = `

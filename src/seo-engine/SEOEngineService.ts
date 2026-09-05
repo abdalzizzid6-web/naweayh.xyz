@@ -2,6 +2,12 @@ import { NewsArticle } from '../core/domain/types';
 import { articlesRepository } from '../repositories/articlesRepository';
 import { sourcesRepository } from '../repositories/sourcesRepository';
 import { NEWS_CATEGORIES } from '../services/newsService';
+import {
+  buildAbsoluteUrl,
+  buildArticleCanonicalUrl,
+  buildCategoryCanonicalUrl,
+  buildSourceCanonicalUrl,
+} from '../core/utils/urlUtils';
 
 export interface SEOAuditReport {
   score: number; // 0 - 100
@@ -65,20 +71,20 @@ export class SEOEngineService {
         title: `${this.siteName} | ${this.siteTagline}`,
         description: 'OmniNews - المنصة الإخبارية الذكية الأولى. تغطية إخبارية فورية ومباشرة مدعومة بالذكاء الاصطناعي، تحليلات موثوقة لأخبار اليمن، العالم العربي والشؤون الدولية.',
         keywords: 'OmniNews, أخبار نوعية, أخبار, اليمن, السعودية, الشرق الأوسط, عاجل, سياسة, اقتصاد, تقنية, ذكاء اصطناعي, رياضة',
-        canonicalUrl: this.siteDomain,
+        canonicalUrl: buildAbsoluteUrl('/'),
         robots: 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1',
         ogType: 'website',
         ogTitle: `${this.siteName} | ${this.siteTagline}`,
         ogDescription: 'OmniNews - المنصة الإخبارية الذكية الأولى. تغطية إخبارية فورية ومباشرة مدعومة بالذكاء الاصطناعي وتحليلات موثوقة.',
-        ogImage: `${this.siteDomain}/og-default.jpg`,
-        ogUrl: this.siteDomain,
+        ogImage: buildAbsoluteUrl('/og-default.jpg'),
+        ogUrl: buildAbsoluteUrl('/'),
         ogSiteName: this.siteName,
         ogLocale: 'ar_SA',
         twitterCard: 'summary_large_image',
         twitterSite: '@OmniNewsAr',
         twitterTitle: `${this.siteName} | ${this.siteTagline}`,
         twitterDescription: 'OmniNews - المنصة الإخبارية الذكية الأولى. تغطية إخبارية فورية ومباشرة.',
-        twitterImage: `${this.siteDomain}/og-default.jpg`,
+        twitterImage: buildAbsoluteUrl('/og-default.jpg'),
       };
     }
 
@@ -103,7 +109,7 @@ export class SEOEngineService {
       .filter(Boolean)
       .join(', ');
 
-    const canonicalUrl = `${this.siteDomain}/news/${article.slug}`;
+    const canonicalUrl = buildArticleCanonicalUrl(article.slug || article.id);
     const mainImage = article.mainImage || 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&w=1200&q=80';
 
     return {
@@ -135,8 +141,8 @@ export class SEOEngineService {
   public generateCategoryMetaTags(categoryName: string): SEOMetaOutput {
     const title = `أخبار ${categoryName} | ${this.siteName}`;
     const description = `تغطية شاملة ومباشرة لأحدث أخبار ومستجدات قسم ${categoryName} من مصادر موثوقة متعددة على منصة ${this.siteName}.`;
-    const canonicalUrl = `${this.siteDomain}/category/${encodeURIComponent(categoryName)}`;
-    const ogImage = `${this.siteDomain}/og-default.jpg`;
+    const canonicalUrl = buildCategoryCanonicalUrl(categoryName);
+    const ogImage = buildAbsoluteUrl('/og-default.jpg');
 
     return {
       title,
@@ -162,8 +168,8 @@ export class SEOEngineService {
   public generateSourceMetaTags(sourceName: string, sourceLogo?: string): SEOMetaOutput {
     const title = `أخبار ${sourceName} | ${this.siteName}`;
     const description = `متابعة أحدث التقارير والأخبار الموثوقة المنشورة عبر ${sourceName} والمجمعة بذكاء على منصة ${this.siteName}.`;
-    const canonicalUrl = `${this.siteDomain}/source/${encodeURIComponent(sourceName)}`;
-    const ogImage = sourceLogo || `${this.siteDomain}/og-default.jpg`;
+    const canonicalUrl = buildSourceCanonicalUrl(sourceName);
+    const ogImage = sourceLogo || buildAbsoluteUrl('/og-default.jpg');
 
     return {
       title,
@@ -190,7 +196,7 @@ export class SEOEngineService {
     const qStr = query ? `"${query}"` : '';
     const title = query ? `نتائج البحث عن ${qStr} | ${this.siteName}` : `البحث في الأخبار | ${this.siteName}`;
     const description = `نتائج البحث عن الأخبار والمقالات والتقارير في منصة ${this.siteName}.`;
-    const canonicalUrl = `${this.siteDomain}/search`;
+    const canonicalUrl = buildAbsoluteUrl('/search');
 
     return {
       title,
@@ -201,7 +207,7 @@ export class SEOEngineService {
       ogType: 'website',
       ogTitle: title,
       ogDescription: description,
-      ogImage: `${this.siteDomain}/og-default.jpg`,
+      ogImage: buildAbsoluteUrl('/og-default.jpg'),
       ogUrl: canonicalUrl,
       ogSiteName: this.siteName,
       ogLocale: 'ar_SA',
@@ -209,7 +215,7 @@ export class SEOEngineService {
       twitterSite: '@OmniNewsAr',
       twitterTitle: title,
       twitterDescription: description,
-      twitterImage: `${this.siteDomain}/og-default.jpg`,
+      twitterImage: buildAbsoluteUrl('/og-default.jpg'),
     };
   }
 
@@ -218,20 +224,20 @@ export class SEOEngineService {
       title: `الصفحة غير موجودة (404) | ${this.siteName}`,
       description: 'عذراً، الصفحة التي تبحث عنها غير موجودة أو تم نقلها. تفضل بزيارة الصفحة الرئيسية لمتابعة أحدث الأخبار.',
       keywords: '404, صفحة غير موجودة, OmniNews',
-      canonicalUrl: `${this.siteDomain}/404`,
+      canonicalUrl: buildAbsoluteUrl('/404'),
       robots: 'noindex, nofollow',
       ogType: 'website',
       ogTitle: `الصفحة غير موجودة (404) | ${this.siteName}`,
       ogDescription: 'الصفحة غير موجودة على منصة OmniNews.',
-      ogImage: `${this.siteDomain}/og-default.jpg`,
-      ogUrl: `${this.siteDomain}/404`,
+      ogImage: buildAbsoluteUrl('/og-default.jpg'),
+      ogUrl: buildAbsoluteUrl('/404'),
       ogSiteName: this.siteName,
       ogLocale: 'ar_SA',
       twitterCard: 'summary',
       twitterSite: '@OmniNewsAr',
       twitterTitle: `الصفحة غير موجودة (404) | ${this.siteName}`,
       twitterDescription: 'الصفحة غير موجودة.',
-      twitterImage: `${this.siteDomain}/og-default.jpg`,
+      twitterImage: buildAbsoluteUrl('/og-default.jpg'),
     };
   }
 
@@ -251,25 +257,25 @@ export class SEOEngineService {
       '@type': 'NewsArticle',
       mainEntityOfPage: {
         '@type': 'WebPage',
-        '@id': `${this.siteDomain}/news/${article.slug}`,
+        '@id': buildArticleCanonicalUrl(article.slug || article.id),
       },
       headline: article.title,
       description: article.summary || article.excerpt || article.title,
-      image: images.length > 0 ? images : [`${this.siteDomain}/og-default.jpg`],
+      image: images.length > 0 ? images : [buildAbsoluteUrl('/og-default.jpg')],
       datePublished: validPubISO,
       dateModified: validModISO,
       author: {
         '@type': 'Person',
         name: article.author || 'فريق التحرير',
-        url: this.siteDomain,
+        url: buildAbsoluteUrl('/'),
       },
       publisher: {
         '@type': 'NewsMediaOrganization',
         name: this.siteName,
-        url: this.siteDomain,
+        url: buildAbsoluteUrl('/'),
         logo: {
           '@type': 'ImageObject',
-          url: `${this.siteDomain}/logo.png`,
+          url: buildAbsoluteUrl('/logo.png'),
           width: 600,
           height: 60,
         },
@@ -305,7 +311,7 @@ export class SEOEngineService {
         '@type': 'ListItem',
         position: index + 1,
         name: item.name,
-        item: item.url.startsWith('http') ? item.url : `${this.siteDomain}${item.url}`,
+        item: buildAbsoluteUrl(item.url),
       })),
     };
   }
@@ -314,7 +320,7 @@ export class SEOEngineService {
     return this.generateBreadcrumbSchema([
       { name: 'الرئيسية', url: '/' },
       { name: article.category, url: `/category/${encodeURIComponent(article.category)}` },
-      { name: article.title, url: `/news/${article.slug}` },
+      { name: article.title, url: buildArticleCanonicalUrl(article.slug || article.id) },
     ]);
   }
 
@@ -322,7 +328,7 @@ export class SEOEngineService {
     return this.generateBreadcrumbSchema([
       { name: 'الرئيسية', url: '/' },
       { name: 'الأقسام', url: '/#categories' },
-      { name: categoryName, url: `/category/${encodeURIComponent(categoryName)}` },
+      { name: categoryName, url: buildCategoryCanonicalUrl(categoryName) },
     ]);
   }
 
@@ -330,7 +336,7 @@ export class SEOEngineService {
     return this.generateBreadcrumbSchema([
       { name: 'الرئيسية', url: '/' },
       { name: 'المصادر', url: '/#sources' },
-      { name: sourceName, url: `/source/${encodeURIComponent(sourceName)}` },
+      { name: sourceName, url: buildSourceCanonicalUrl(sourceName) },
     ]);
   }
 
@@ -340,12 +346,12 @@ export class SEOEngineService {
       '@type': 'WebSite',
       name: this.siteName,
       alternateName: 'أخبار نوعية',
-      url: this.siteDomain,
+      url: buildAbsoluteUrl('/'),
       potentialAction: {
         '@type': 'SearchAction',
         target: {
           '@type': 'EntryPoint',
-          urlTemplate: `${this.siteDomain}/search?q={search_term_string}`,
+          urlTemplate: buildAbsoluteUrl('/search?q={search_term_string}'),
         },
         'query-input': 'required name=search_term_string',
       },
@@ -358,9 +364,9 @@ export class SEOEngineService {
       '@type': 'NewsMediaOrganization',
       name: this.siteName,
       alternateName: 'أخبار نوعية — Naw3iya News',
-      url: this.siteDomain,
-      logo: `${this.siteDomain}/logo.png`,
-      publishingPrinciples: `${this.siteDomain}/editorial-guidelines`,
+      url: buildAbsoluteUrl('/'),
+      logo: buildAbsoluteUrl('/logo.png'),
+      publishingPrinciples: buildAbsoluteUrl('/editorial-guidelines'),
       sameAs: [
         'https://x.com/OmniNewsAr',
         'https://facebook.com/OmniNewsAr',
@@ -379,14 +385,14 @@ export class SEOEngineService {
       '@context': 'https://schema.org',
       '@type': 'CollectionPage',
       name: `أخبار ${categoryName} — ${this.siteName}`,
-      url: `${this.siteDomain}/category/${encodeURIComponent(categoryName)}`,
+      url: buildCategoryCanonicalUrl(categoryName),
       description: `أحدث أخبار وتغطيات قسم ${categoryName} على منصة ${this.siteName}`,
       mainEntity: {
         '@type': 'ItemList',
         itemListElement: articles.slice(0, 15).map((art, idx) => ({
           '@type': 'ListItem',
           position: idx + 1,
-          url: `${this.siteDomain}/news/${art.slug}`,
+          url: buildArticleCanonicalUrl(art.slug || art.id),
           name: art.title,
         })),
       },
@@ -427,7 +433,7 @@ export class SEOEngineService {
         });
 
         return `  <url>
-    <loc>${this.siteDomain}/news/${art.slug}</loc>
+    <loc>${buildArticleCanonicalUrl(art.slug || art.id)}</loc>
     <news:news>
       <news:publication>
         <news:name>${this.siteName}</news:name>
@@ -463,7 +469,7 @@ ${xmlItems}
     const xmlItems = staticRoutes
       .map(
         (r) => `  <url>
-    <loc>${this.siteDomain}${r.path}</loc>
+    <loc>${buildAbsoluteUrl(r.path)}</loc>
     <lastmod>${nowISO}</lastmod>
     <changefreq>${r.changefreq}</changefreq>
     <priority>${r.priority}</priority>
@@ -487,7 +493,7 @@ ${xmlItems}
     const xmlItems = categories
       .map(
         (cat) => `  <url>
-    <loc>${this.siteDomain}/category/${encodeURIComponent(cat)}</loc>
+    <loc>${buildCategoryCanonicalUrl(cat)}</loc>
     <lastmod>${nowISO}</lastmod>
     <changefreq>hourly</changefreq>
     <priority>0.8</priority>
@@ -526,7 +532,7 @@ ${xmlItems}
     const xmlItems = Array.from(sourceNames)
       .map(
         (name) => `  <url>
-    <loc>${this.siteDomain}/source/${encodeURIComponent(name)}</loc>
+    <loc>${buildSourceCanonicalUrl(name)}</loc>
     <lastmod>${nowISO}</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.7</priority>
@@ -561,7 +567,7 @@ ${xmlItems}
           .join('\n');
 
         return `  <url>
-    <loc>${this.siteDomain}/news/${art.slug}</loc>
+    <loc>${buildArticleCanonicalUrl(art.slug || art.id)}</loc>
 ${imageTags}
   </url>`;
       })
@@ -585,7 +591,7 @@ ${xmlItems}
       .map((art) => {
         const pubDateISO = new Date(art.publishDate).toISOString();
         return `  <url>
-    <loc>${this.siteDomain}/news/${art.slug}</loc>
+    <loc>${buildArticleCanonicalUrl(art.slug || art.id)}</loc>
     <video:video>
       <video:thumbnail_loc>${art.mainImage}</video:thumbnail_loc>
       <video:title><![CDATA[${art.title}]]></video:title>
@@ -613,27 +619,27 @@ ${xmlItems}
     return `<?xml version="1.0" encoding="UTF-8"?>
 <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <sitemap>
-    <loc>${this.siteDomain}/sitemap-news.xml</loc>
+    <loc>${buildAbsoluteUrl('/sitemap-news.xml')}</loc>
     <lastmod>${nowISO}</lastmod>
   </sitemap>
   <sitemap>
-    <loc>${this.siteDomain}/sitemap-pages.xml</loc>
+    <loc>${buildAbsoluteUrl('/sitemap-pages.xml')}</loc>
     <lastmod>${nowISO}</lastmod>
   </sitemap>
   <sitemap>
-    <loc>${this.siteDomain}/sitemap-categories.xml</loc>
+    <loc>${buildAbsoluteUrl('/sitemap-categories.xml')}</loc>
     <lastmod>${nowISO}</lastmod>
   </sitemap>
   <sitemap>
-    <loc>${this.siteDomain}/sitemap-sources.xml</loc>
+    <loc>${buildAbsoluteUrl('/sitemap-sources.xml')}</loc>
     <lastmod>${nowISO}</lastmod>
   </sitemap>
   <sitemap>
-    <loc>${this.siteDomain}/sitemap-images.xml</loc>
+    <loc>${buildAbsoluteUrl('/sitemap-images.xml')}</loc>
     <lastmod>${nowISO}</lastmod>
   </sitemap>
   <sitemap>
-    <loc>${this.siteDomain}/sitemap-videos.xml</loc>
+    <loc>${buildAbsoluteUrl('/sitemap-videos.xml')}</loc>
     <lastmod>${nowISO}</lastmod>
   </sitemap>
 </sitemapindex>`;
@@ -648,10 +654,11 @@ ${xmlItems}
     const itemsXml = articles
       .map((art) => {
         const pubDate = new Date(art.publishDate).toUTCString();
+        const articleCanonicalUrl = buildArticleCanonicalUrl(art.slug || art.id);
         return `    <item>
       <title><![CDATA[${art.title}]]></title>
-      <link>${this.siteDomain}/news/${art.slug}</link>
-      <guid isPermaLink="true">${this.siteDomain}/news/${art.slug}</guid>
+      <link>${articleCanonicalUrl}</link>
+      <guid isPermaLink="true">${articleCanonicalUrl}</guid>
       <pubDate>${pubDate}</pubDate>
       <description><![CDATA[${art.summary}]]></description>
       <category><![CDATA[${art.category}]]></category>
@@ -669,10 +676,10 @@ ${xmlItems}
      xmlns:media="http://search.yahoo.com/mrss/">
   <channel>
     <title>${this.siteName} — ${this.siteTagline}</title>
-    <link>${this.siteDomain}</link>
+    <link>${buildAbsoluteUrl('/')}</link>
     <description>خلاصة الأخبار الفورية والتحليلات المستندة إلى الذكاء الاصطناعي — الأخبار كما تستحق أن تُقرأ</description>
     <language>ar-SA</language>
-    <atom:link href="${this.siteDomain}/rss.xml" rel="self" type="application/rss+xml" />
+    <atom:link href="${buildAbsoluteUrl('/rss.xml')}" rel="self" type="application/rss+xml" />
 ${itemsXml}
   </channel>
 </rss>`;
@@ -869,7 +876,7 @@ ${paragraphsHtml}
             ${(article.aiEntities?.tags || []).map((t) => `<span style="background: #f1f5f9; padding: 4px 10px; border-radius: 20px; font-size: 12px;">#${t}</span>`).join(' ')}
           </div>
           <div style="margin-top: 15px; font-size: 13px; color: #64748b;">
-            الرابط الدائم (Canonical): <a href="${this.siteDomain}/news/${article.slug}">${this.siteDomain}/news/${article.slug}</a>
+            الرابط الدائم (Canonical): <a href="${buildArticleCanonicalUrl(article.slug || article.id)}">${buildArticleCanonicalUrl(article.slug || article.id)}</a>
           </div>
         </footer>
       </article>
@@ -998,7 +1005,7 @@ ${articlesListHtml}
 <head>
   <meta charset="utf-8">
   <title>${article.title} | ${this.siteName}</title>
-  <link rel="canonical" href="${this.siteDomain}/news/${article.slug}">
+  <link rel="canonical" href="${buildArticleCanonicalUrl(article.slug || article.id)}">
   <meta name="viewport" content="width=device-width,minimum-scale=1,initial-scale=1">
   <style amp-boilerplate>body{-webkit-animation:-amp-start 8s steps(1,end) 0s 1 normal both;-moz-animation:-amp-start 8s steps(1,end) 0s 1 normal both;-ms-animation:-amp-start 8s steps(1,end) 0s 1 normal both;animation:-amp-start 8s steps(1,end) 0s 1 normal both}@-webkit-keyframes -amp-start{from{visibility:hidden}to{visibility:visible}}@-moz-keyframes -amp-start{from{visibility:hidden}to{visibility:visible}}@-ms-keyframes -amp-start{from{visibility:hidden}to{visibility:visible}}@-o-keyframes -amp-start{from{visibility:hidden}to{visibility:visible}}@keyframes -amp-start{from{visibility:hidden}to{visibility:visible}}</style><noscript><style amp-boilerplate>body{-webkit-animation:none;-moz-animation:none;-ms-animation:none;animation:none}</style></noscript>
   <script async src="https://cdn.ampproject.org/v0.js"></script>
