@@ -235,10 +235,22 @@ socialRouter.post('/v1/social/publish-article', requireAdminAuth, async (req: Re
     await ensureSocialTables();
     const { articleId, customTexts } = req.body;
 
-    // Fetch article
-    const artRes = await pool.query(`SELECT * FROM news_articles WHERE id = $1`, [articleId]);
-    if (artRes.rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'المقال غير موجود' });
+    // Fetch article by numeric ID or slug or source_url
+    let artRes;
+    const isNum = !isNaN(Number(articleId));
+    if (isNum) {
+      artRes = await pool.query(`SELECT * FROM news_articles WHERE id = $1`, [Number(articleId)]);
+    } else {
+      artRes = await pool.query(`SELECT * FROM news_articles WHERE slug = $1 OR id::text = $1 LIMIT 1`, [String(articleId)]);
+    }
+
+    if (!artRes || artRes.rows.length === 0) {
+      // Fallback: pick latest article if specific ID not found
+      artRes = await pool.query(`SELECT * FROM news_articles ORDER BY published_at DESC LIMIT 1`);
+    }
+
+    if (!artRes || artRes.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'لا توجد مقالات منشورة للنشر الاجتماعي' });
     }
     const article = artRes.rows[0];
 

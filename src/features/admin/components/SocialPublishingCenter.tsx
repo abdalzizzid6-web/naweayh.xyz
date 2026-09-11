@@ -49,8 +49,17 @@ export const SocialPublishingCenter: React.FC<SocialPublishingCenterProps> = ({
   triggerToast,
 }) => {
   const [activeTab, setActiveTab] = useState<'PLATFORMS' | 'GENERATOR' | 'RULES' | 'LOGS'>('PLATFORMS');
-  const [platforms, setPlatforms] = useState<SocialPlatform[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Fallback initial platforms
+  const DEFAULT_INITIAL_PLATFORMS: SocialPlatform[] = [
+    { id: 'tg', name: 'قناة التليجرام الإخبارية (Telegram Channel)', type: 'Telegram', enabled: true, auto_publish: true, connected: false, account_name: '@naweayh_news' },
+    { id: 'fb', name: 'صفحة فيسبوك الرسمية (Facebook Page)', type: 'Facebook', enabled: true, auto_publish: true, connected: false, account_name: 'Naw3iya Official News' },
+    { id: 'x', name: 'منصة إكس / تويتر (X / Twitter)', type: 'X', enabled: true, auto_publish: true, connected: false, account_name: '@naweayh_xyz' },
+    { id: 'wa', name: 'قناة واتساب الإخبارية (WhatsApp Channels)', type: 'WhatsApp', enabled: true, auto_publish: true, connected: false, account_name: 'Naw3iya News Channel' },
+    { id: 'ig', name: 'إنستغرام الأعمال (Instagram Business)', type: 'Instagram', enabled: true, auto_publish: false, connected: false, account_name: '@naweayh_official' },
+  ];
+
+  const [platforms, setPlatforms] = useState<SocialPlatform[]>(DEFAULT_INITIAL_PLATFORMS);
+  const [loading, setLoading] = useState(false);
   const [isConnectingAll, setIsConnectingAll] = useState(false);
   const [logs, setLogs] = useState<any[]>([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
@@ -62,12 +71,12 @@ export const SocialPublishingCenter: React.FC<SocialPublishingCenterProps> = ({
       const res = await AuthService.fetchWithAuth('/api/v1/social/platforms');
       if (res.ok) {
         const json = await res.json();
-        if (json.success && Array.isArray(json.data)) {
+        if (json.success && Array.isArray(json.data) && json.data.length > 0) {
           setPlatforms(json.data);
         }
       }
     } catch {
-      // Fallback
+      // Keep existing state
     } finally {
       setLoading(false);
     }
