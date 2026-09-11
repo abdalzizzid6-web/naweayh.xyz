@@ -2,6 +2,7 @@ import express, { Express } from 'express';
 import { newsApiRouter, mapDbRowToArticle } from './api/newsRouter';
 import { authRouter, requireAdminAuth } from './api/authRouter';
 import { storiesApiRouter } from './api/storiesRouter';
+import { socialRouter } from './api/socialRouter';
 import { aiPipelineService } from './services/AIPipelineService';
 import { seoEngineService } from '../src/seo-engine/SEOEngineService';
 import { articlesRepository } from '../src/repositories/articlesRepository';
@@ -171,6 +172,7 @@ export function createExpressApp(): Express {
   app.use('/api/v1/auth', authRouter);
   app.use('/api', newsApiRouter);
   app.use('/api', storiesApiRouter);
+  app.use('/api', socialRouter);
 
   // AI Pipeline Processing Endpoint (Admin Protected)
   app.post('/api/ai/process', requireAdminAuth, async (req, res) => {
