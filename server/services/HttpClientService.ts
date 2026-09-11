@@ -5,6 +5,8 @@ export interface HttpRequestOptions {
   retryAttempts?: number;
   retryDelayMs?: number;
   maxResponseSizeBytes?: number;
+  method?: string;
+  body?: string;
 }
 
 export interface HttpResponseResult {
@@ -73,16 +75,22 @@ export class HttpClientService {
 
       try {
         const startTime = Date.now();
-        const browserHeaders = {
+        const method = options.method || (options.body ? 'POST' : 'GET');
+        const browserHeaders: Record<string, string> = {
           'User-Agent': this.getRandomUserAgent(),
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,application/rss+xml,application/atom+xml,application/json;q=0.8,*/*;q=0.7',
           'Accept-Language': 'ar,en-US;q=0.9,en;q=0.8',
           ...headers,
         };
 
+        if (options.body && !browserHeaders['Content-Type'] && !browserHeaders['content-type']) {
+          browserHeaders['Content-Type'] = 'application/json';
+        }
+
         const res = await fetch(url, {
-          method: 'GET',
+          method,
           headers: browserHeaders,
+          body: options.body,
           redirect: 'follow',
           signal: AbortSignal.timeout(timeoutMs),
         });

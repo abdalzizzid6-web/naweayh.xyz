@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Bell, Shield, UserCheck, Sparkles, Command, Sun, Moon, Zap, Activity } from 'lucide-react';
+import { Search, Bell, Shield, UserCheck, Sparkles, Command, Sun, Moon, Zap, Activity, LogOut } from 'lucide-react';
 import { UserRole } from '../../../types';
 import { Badge } from '../../../components/ui/Badge';
 
@@ -157,21 +157,22 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
             <div className="flex items-center gap-2">
               <UserCheck className="w-3.5 h-3.5 text-indigo-400" />
               <div className="flex flex-col">
-                <span className="text-[11px] font-bold text-white">{currentUser?.name || 'Admin'}</span>
-                <span className="text-[9px] text-indigo-300">{currentUser?.role || 'System Admin'}</span>
+                <span className="text-[11px] font-bold text-white">{currentUser?.name || 'مدير النظام'}</span>
+                <span className="text-[9px] text-indigo-300">حساب الإدارة الوحيد</span>
               </div>
             </div>
             <div className="w-px h-5 bg-slate-700"></div>
             <button
               onClick={() => {
                 import('../../../services/AuthService').then(({ AuthService }) => {
-                  AuthService.clearToken();
-                  window.location.reload();
+                  AuthService.logout();
                 });
               }}
-              className="text-xs font-bold text-rose-400 hover:text-rose-300 px-2 py-1 rounded transition-colors"
+              title="تسجيل الخروج من لوحة التحكم"
+              className="flex items-center gap-1 text-xs font-bold text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 px-2 py-1 rounded transition-colors"
             >
-              خروج
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">تسجيل الخروج</span>
             </button>
           </div>
         </div>

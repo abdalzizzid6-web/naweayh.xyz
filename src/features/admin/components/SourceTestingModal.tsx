@@ -43,6 +43,7 @@ export const SourceTestingModal: React.FC<SourceTestingModalProps> = ({
     duplicateItems: number;
     failedItems: number;
     extractedImages: number;
+    errorMessage?: string;
     sampleArticles: Array<{
       title: string;
       pubDate: string;
@@ -51,43 +52,73 @@ export const SourceTestingModal: React.FC<SourceTestingModalProps> = ({
     }>;
   } | null>(null);
 
-  const runTestSource = () => {
+  const runTestSource = async () => {
+    if (!source) return;
     setTesting(true);
     setTestResult(null);
 
-    setTimeout(() => {
-      setTesting(false);
-      setTestResult({
-        status: 'SUCCESS',
-        responseTimeMs: Math.floor(Math.random() * 200) + 120,
-        httpStatus: 200,
-        totalItems: 15,
-        validItems: 14,
-        duplicateItems: 1,
-        failedItems: 0,
-        extractedImages: 14,
-        sampleArticles: [
-          {
-            title: 'إعلان خطة التحول الرقمي وتوسيع التغطية الأخبار الإقليمية',
-            pubDate: new Date().toLocaleTimeString('ar-SA'),
-            hasImage: true,
-            isValid: true,
-          },
-          {
-            title: 'مؤتمر الاستثمار التقني يستعرض الفرص القادمة في المنطقة',
-            pubDate: new Date().toLocaleTimeString('ar-SA'),
-            hasImage: true,
-            isValid: true,
-          },
-          {
-            title: 'تقرير اقتصادي: ارتفاع معدلات التداول والنمو في القطاع الخدمي',
-            pubDate: new Date().toLocaleTimeString('ar-SA'),
-            hasImage: true,
-            isValid: true,
-          },
-        ],
+    try {
+      const token = localStorage.getItem('adminToken') || '';
+      const res = await fetch('/api/v1/admin/sources/test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          url: source.url,
+          sourceId: source.id,
+        }),
       });
-    }, 1200);
+
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.data) {
+          setTestResult(json.data);
+        } else {
+          setTestResult({
+            status: 'FAILED',
+            responseTimeMs: 0,
+            httpStatus: 500,
+            totalItems: 0,
+            validItems: 0,
+            duplicateItems: 0,
+            failedItems: 0,
+            extractedImages: 0,
+            errorMessage: json.message || 'فشل فحص المصدر',
+            sampleArticles: [],
+          });
+        }
+      } else {
+        setTestResult({
+          status: 'FAILED',
+          responseTimeMs: 0,
+          httpStatus: res.status,
+          totalItems: 0,
+          validItems: 0,
+          duplicateItems: 0,
+          failedItems: 0,
+          extractedImages: 0,
+          errorMessage: `خطأ في الاستجابة: HTTP ${res.status}`,
+          sampleArticles: [],
+        });
+      }
+    } catch (err: any) {
+      setTestResult({
+        status: 'FAILED',
+        responseTimeMs: 0,
+        httpStatus: 0,
+        totalItems: 0,
+        validItems: 0,
+        duplicateItems: 0,
+        failedItems: 0,
+        extractedImages: 0,
+        errorMessage: err?.message || 'تعذر الاتصال بالخادم',
+        sampleArticles: [],
+      });
+    } finally {
+      setTesting(false);
+    }
   };
 
   return (

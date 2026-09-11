@@ -32,24 +32,34 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
   onOpenStory,
 }) => {
   const [stories, setStories] = useState<StoryCluster[]>([]);
-  const [sources, setSources] = useState<NewsSource[]>([]);
+  const [sources, setSources] = useState<NewsSource[]>(() => newsService.getSources());
   const [followedSources, setFollowedSources] = useState<string[]>(['spa', 'reuters', 'saba']);
   const [sourceSearch, setSourceSearch] = useState<string>('');
   const [sourceCategoryFilter, setSourceCategoryFilter] = useState<string>('الكل');
 
-  const trendingNews = newsService.getTrendingNews().slice(0, 4);
-  const mostReadNews = newsService.getMostReadNews(5);
-  const allArticles = newsService.getArticles(undefined, undefined, undefined, false, false, { page: 1, limit: 12 }).data;
+  const [trendingNews, setTrendingNews] = useState<NewsArticle[]>(() => newsService.getTrendingNews().slice(0, 4));
+  const [mostReadNews, setMostReadNews] = useState<NewsArticle[]>(() => newsService.getMostReadNews(5));
+  const [allArticles, setAllArticles] = useState<NewsArticle[]>(() => newsService.getArticles(undefined, undefined, undefined, false, false, { page: 1, limit: 12 }).data);
 
   useEffect(() => {
     async function loadData() {
       try {
-        const res = await storiesService.getStories({ limit: 6 });
-        setStories(res.data);
+        const [storyRes, trendingRes, mostReadRes, articlesRes, sourcesRes] = await Promise.allSettled([
+          storiesService.getStories({ limit: 6 }),
+          newsService.fetchTrendingNews(),
+          newsService.fetchMostReadNews(5),
+          newsService.fetchArticles(undefined, undefined, undefined, false, false, { page: 1, limit: 12 }),
+          newsService.fetchSources(),
+        ]);
+
+        if (storyRes.status === 'fulfilled') setStories(storyRes.value.data);
+        if (trendingRes.status === 'fulfilled') setTrendingNews(trendingRes.value.slice(0, 4));
+        if (mostReadRes.status === 'fulfilled') setMostReadNews(mostReadRes.value.slice(0, 5));
+        if (articlesRes.status === 'fulfilled') setAllArticles(articlesRes.value.data);
+        if (sourcesRes.status === 'fulfilled') setSources(sourcesRes.value);
       } catch (err) {
-        console.warn('Could not load story clusters:', err);
+        console.warn('Could not load explore data:', err);
       }
-      setSources(newsService.getSources());
     }
     loadData();
   }, []);

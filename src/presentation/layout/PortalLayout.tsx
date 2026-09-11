@@ -154,7 +154,7 @@ export const PortalLayout: React.FC<{ children: React.ReactNode }> = ({ children
                   </span>
                 </div>
                 <span className="text-[10px] sm:text-[11px] text-emerald-700 dark:text-emerald-400 font-extrabold tracking-wider uppercase mt-1">
-                  OMNINEWS • المنصة الذكية
+                  NAW3IYA NEWS • المنصة الذكية
                 </span>
               </div>
             </div>

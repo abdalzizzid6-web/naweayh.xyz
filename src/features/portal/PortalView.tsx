@@ -3,6 +3,7 @@ import { useApp } from '../../presentation';
 import { newsService, NEWS_CATEGORIES, COUNTRIES, YEMEN_REGIONS, UserPreferences } from '../../services/newsService';
 import { storiesService, StoryCluster } from '../../services/storiesService';
 import { NewsArticle, NewsSource } from '../../types';
+import { PaginatedResult } from '../../repositories/baseRepository';
 import { HeroNewsCard, FeaturedNewsCard, HorizontalNewsCard, CompactNewsCard, StoryClusterCard, HeroNewsSkeleton, FeaturedNewsSkeleton, HorizontalNewsSkeleton } from '../../components/news';
 import { ExploreView } from './ExploreView';
 import { SavedAndHistoryView } from './SavedAndHistoryView';
@@ -53,8 +54,20 @@ export const PortalView: React.FC = () => {
   const [, setForceUpdate] = useState<number>(0);
 
   // Saved Articles & History
-  const [savedArticles, setSavedArticles] = useState<NewsArticle[]>(newsService.getSavedArticles());
-  const [readingHistory, setReadingHistory] = useState(newsService.getReadingHistory());
+  const [savedArticles, setSavedArticles] = useState<NewsArticle[]>(() => newsService.getSavedArticles());
+  const [readingHistory, setReadingHistory] = useState(() => newsService.getReadingHistory());
+  const [mostReadNews, setMostReadNews] = useState<NewsArticle[]>(() => newsService.getMostReadNews(5));
+  const [trendingNews, setTrendingNews] = useState<NewsArticle[]>(() => newsService.getTrendingNews().slice(0, 4));
+  const [paginatedResult, setPaginatedResult] = useState<PaginatedResult<NewsArticle>>(() => 
+    newsService.getArticles(
+      undefined,
+      undefined,
+      undefined,
+      false,
+      false,
+      { page: 1, limit: 12 }
+    )
+  );
 
   useEffect(() => {
     async function initData() {
@@ -62,8 +75,16 @@ export const PortalView: React.FC = () => {
       setBreakingNews(newsService.getBreakingNews());
       
       try {
-        await newsService.syncLatestFromApi();
-        setBreakingNews(newsService.getBreakingNews());
+        const [breaking, trending, mostRead, saved] = await Promise.allSettled([
+          newsService.fetchBreakingNews(),
+          newsService.fetchTrendingNews(),
+          newsService.fetchMostReadNews(5),
+          newsService.fetchSavedArticles(),
+        ]);
+        if (breaking.status === 'fulfilled') setBreakingNews(breaking.value);
+        if (trending.status === 'fulfilled') setTrendingNews(trending.value.slice(0, 4));
+        if (mostRead.status === 'fulfilled') setMostReadNews(mostRead.value.slice(0, 5));
+        if (saved.status === 'fulfilled') setSavedArticles(saved.value);
         setForceUpdate((v) => v + 1);
       } catch (err) {
         console.warn('API sync fallback:', err);
@@ -91,6 +112,48 @@ export const PortalView: React.FC = () => {
     return () => clearInterval(interval);
   }, [breakingNews, isTickerPaused]);
 
+  // Filter and paginated articles logic
+  const effectiveCategory = globalActiveTab === 'yemen' 
+    ? 'اليمن' 
+    : globalActiveTab === 'arab'
+    ? 'العالم العربي'
+    : globalActiveTab === 'world'
+    ? 'دولي'
+    : globalActiveTab === 'business'
+    ? 'اقتصاد'
+    : globalActiveTab === 'tech'
+    ? 'تقنية'
+    : globalActiveTab === 'sports'
+    ? 'رياضة'
+    : selectedCategory === 'الكل'
+    ? undefined
+    : selectedCategory;
+
+  useEffect(() => {
+    let isMounted = true;
+    async function loadArticles() {
+      try {
+        const result = await newsService.fetchArticles(
+          effectiveCategory,
+          selectedCountry === 'جميع الدول' ? undefined : selectedCountry,
+          searchQuery || (selectedYemenRegion ? selectedYemenRegion : undefined),
+          globalActiveTab === 'latest',
+          false,
+          { page: currentPage, limit: 12 }
+        );
+        if (isMounted) {
+          setPaginatedResult(result);
+        }
+      } catch (err) {
+        console.warn('Error fetching articles from PostgreSQL API:', err);
+      }
+    }
+    loadArticles();
+    return () => {
+      isMounted = false;
+    };
+  }, [effectiveCategory, selectedCountry, searchQuery, selectedYemenRegion, currentPage, globalActiveTab]);
+
   const handleOpenArticle = (article: NewsArticle) => {
     newsService.recordReadingHistory(article);
     setReadingHistory(newsService.getReadingHistory());
@@ -104,12 +167,26 @@ export const PortalView: React.FC = () => {
   };
 
   const handleBookmark = (id: string) => {
-    newsService.toggleBookmark(id);
-    setSavedArticles(newsService.getSavedArticles());
+    const isSaved = newsService.toggleBookmark(id);
+    setSavedArticles(prev => {
+      if (isSaved) {
+        const art = newsService.getArticleById(id);
+        return art ? [art, ...prev.filter(a => a.id !== id)] : prev;
+      }
+      return prev.filter(a => a.id !== id);
+    });
+    setPaginatedResult(prev => ({
+      ...prev,
+      data: prev.data.map(a => a.id === id ? { ...a, isBookmarked: isSaved, bookmarksCount: isSaved ? a.bookmarksCount + 1 : Math.max(0, a.bookmarksCount - 1) } : a)
+    }));
   };
 
   const handleShare = (id: string) => {
     newsService.shareArticle(id);
+    setPaginatedResult(prev => ({
+      ...prev,
+      data: prev.data.map(a => a.id === id ? { ...a, sharesCount: a.sharesCount + 1 } : a)
+    }));
   };
 
   // Switch view if global activeTab is "topics" or "saved" or "my_feed"
@@ -139,38 +216,9 @@ export const PortalView: React.FC = () => {
     );
   }
 
-  // Filter and paginated articles
-  const effectiveCategory = globalActiveTab === 'yemen' 
-    ? 'اليمن' 
-    : globalActiveTab === 'arab'
-    ? 'العالم العربي'
-    : globalActiveTab === 'world'
-    ? 'دولي'
-    : globalActiveTab === 'business'
-    ? 'اقتصاد'
-    : globalActiveTab === 'tech'
-    ? 'تقنية'
-    : globalActiveTab === 'sports'
-    ? 'رياضة'
-    : selectedCategory === 'الكل'
-    ? undefined
-    : selectedCategory;
-
-  const paginatedResult = newsService.getArticles(
-    effectiveCategory,
-    selectedCountry === 'جميع الدول' ? undefined : selectedCountry,
-    searchQuery || (selectedYemenRegion ? selectedYemenRegion : undefined),
-    globalActiveTab === 'latest',
-    false,
-    { page: currentPage, limit: 12 }
-  );
-
   const heroArticle = paginatedResult.data.length > 0 ? paginatedResult.data[0] : null;
   const companionArticles = paginatedResult.data.slice(1, 3);
   const remainingArticles = paginatedResult.data.slice(3);
-
-  const mostReadNews = newsService.getMostReadNews(5);
-  const trendingNews = newsService.getTrendingNews().slice(0, 4);
 
   return (
     <div dir="rtl" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-8 font-sans">

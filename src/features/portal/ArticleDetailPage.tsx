@@ -53,15 +53,21 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
   const [scrollProgress, setScrollProgress] = useState(0);
   const [fontSize, setFontSize] = useState<'normal' | 'large' | 'xlarge'>('normal');
 
+  const [mostReadSidebar, setMostReadSidebar] = useState<NewsArticle[]>(() => newsService.getMostReadNews(5));
+
   useEffect(() => {
     let isMounted = true;
     setIsLoading(true);
 
     async function loadArticle() {
-      const found = await newsService.getArticleBySlugOrIdAsync(slug);
+      const [found, mostRead] = await Promise.all([
+        newsService.getArticleBySlugOrIdAsync(slug),
+        newsService.fetchMostReadNews(6),
+      ]);
       if (isMounted) {
         setArticle(found);
         setIsBookmarked(found?.isBookmarked || false);
+        setMostReadSidebar(mostRead.filter(a => a.id !== found?.id).slice(0, 5));
         setIsLoading(false);
       }
     }
@@ -182,11 +188,40 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
   const primarySource = article.sources?.[0];
   const originalUrl = article.originalArticleUrl || primarySource?.url || article.canonicalUrl;
 
-  const relatedArticles = newsService
-    .getArticles(article.category, undefined, undefined, false, false, { page: 1, limit: 4 })
-    .data.filter((a) => a.id !== article.id);
+  const wordCount = article.wordCount || (article.content || article.summary || '').split(/\s+/).filter(Boolean).length;
+  const readingMinutes = article.readingTimeMinutes || Math.max(1, Math.ceil(wordCount / 180));
 
-  const mostReadSidebar = newsService.getMostReadNews(4).filter((a) => a.id !== article.id);
+  const publishDateFormatted = new Date(article.publishDate).toLocaleDateString('ar-YE', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+
+  const updatedDateFormatted = article.updatedAt ? new Date(article.updatedAt).toLocaleDateString('ar-YE', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  }) : null;
+
+  const relatedArticles = (article as any).relatedArticles && (article as any).relatedArticles.length > 0
+    ? (article as any).relatedArticles
+    : newsService
+        .getArticles(article.category, undefined, undefined, false, false, { page: 1, limit: 4 })
+        .data.filter((a) => a.id !== article.id);
+
+  const sourceArticles = (article as any).moreFromSource && (article as any).moreFromSource.length > 0
+    ? (article as any).moreFromSource
+    : newsService
+        .getArticles(undefined, undefined, undefined, false, false, { page: 1, limit: 4 })
+        .data.filter((a) => a.id !== article.id && (primarySource ? a.sources?.some((s) => s.name === primarySource.name) : false));
+
+  const latestArticles = newsService
+    .getArticles(undefined, undefined, undefined, false, false, { page: 1, limit: 4 })
+    .data.filter((a) => a.id !== article.id);
 
   return (
     <article dir="rtl" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8 pb-20 font-sans relative">
@@ -251,14 +286,27 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
                 </span>
               )}
 
-              <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1 font-mono mr-auto">
-                <Calendar className="w-3.5 h-3.5" />
-                {new Date(article.publishDate).toLocaleDateString('ar-YE', {
-                  year: 'numeric',
-                  month: 'short',
-                  day: 'numeric',
-                })}
+              {/* Reading Time & Word Count Badges */}
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/90 px-2 py-0.5 rounded-full">
+                <Clock className="w-3 h-3 text-emerald-600" />
+                {readingMinutes} دقائق قراءة
               </span>
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/90 px-2 py-0.5 rounded-full">
+                <FileText className="w-3 h-3 text-emerald-600" />
+                {wordCount} كلمة
+              </span>
+
+              <div className="flex flex-col sm:flex-row items-end sm:items-center gap-1 mr-auto text-xs text-slate-500 dark:text-slate-400 font-mono">
+                <span className="flex items-center gap-1">
+                  <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                  {publishDateFormatted}
+                </span>
+                {updatedDateFormatted && (
+                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400">
+                    (تحديث: {updatedDateFormatted})
+                  </span>
+                )}
+              </div>
             </div>
 
             <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black text-slate-900 dark:text-white leading-tight">
@@ -315,21 +363,26 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
             </div>
           </div>
 
-          {/* Main Cover Image */}
-          <div className="relative rounded-3xl overflow-hidden border border-slate-200 dark:border-slate-800 aspect-video shadow-sm bg-slate-950">
-            <img
-              src={article.mainImage || DEFAULT_NEWS_IMAGE}
-              alt={article.title}
-              onError={(e) => {
-                e.currentTarget.src = DEFAULT_NEWS_IMAGE;
-              }}
-              className="w-full h-full object-cover"
-            />
-            <div className="absolute bottom-3.5 right-3.5 bg-slate-950/90 backdrop-blur-xs text-white text-xs px-3 py-1.5 rounded-xl border border-slate-800 flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              تغطية إخبارية مستقلة ومحققة إلكترونياً
+          {/* Main Cover Image with Caption */}
+          <figure className="relative rounded-3xl overflow-hidden border border-slate-200 dark:border-slate-800 shadow-sm bg-slate-950">
+            <div className="aspect-video w-full overflow-hidden">
+              <img
+                src={article.mainImage || DEFAULT_NEWS_IMAGE}
+                alt={article.title}
+                onError={(e) => {
+                  e.currentTarget.src = DEFAULT_NEWS_IMAGE;
+                }}
+                className="w-full h-full object-cover"
+              />
             </div>
-          </div>
+            <figcaption className="p-3 bg-slate-900 text-slate-300 text-xs flex items-center justify-between border-t border-slate-800">
+              <span className="truncate max-w-lg">{article.imageCaption || article.title}</span>
+              <span className="text-[11px] text-emerald-400 font-bold shrink-0 mr-2 flex items-center gap-1">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                {primarySource?.name || 'نوعية نيوز'}
+              </span>
+            </figcaption>
+          </figure>
 
           {/* Interactive Action Toolbar & Font Controls */}
           <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900 text-white p-3.5 sm:p-4 rounded-2xl shadow-md">
@@ -417,14 +470,36 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
           {/* Main Article Text Body */}
           <div className="space-y-6">
             <div className="bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-6">
-              {paragraphsToRender.map((paragraph, index) => (
-                <p
-                  key={index}
-                  className={`text-slate-800 dark:text-slate-100 font-sans tracking-normal ${fontSizeClasses}`}
-                >
-                  {paragraph}
-                </p>
-              ))}
+              {paragraphsToRender.map((paragraph, index) => {
+                const isQuote = paragraph.startsWith('«') || paragraph.startsWith('"') || paragraph.startsWith('وقال') || paragraph.startsWith('وأكد') || paragraph.startsWith('وصرح');
+                const isSubheading = paragraph.startsWith('###') || paragraph.startsWith('##') || (paragraph.length < 65 && !paragraph.endsWith('.') && !paragraph.endsWith('،') && index > 0);
+
+                if (isSubheading) {
+                  const cleanSub = paragraph.replace(/^#+\s*/, '');
+                  return (
+                    <h3 key={index} className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white pt-4 pb-1 border-r-4 border-emerald-600 pr-3">
+                      {cleanSub}
+                    </h3>
+                  );
+                }
+
+                if (isQuote && paragraph.length > 30) {
+                  return (
+                    <blockquote key={index} className="my-6 p-4 sm:p-5 bg-emerald-50/70 dark:bg-emerald-950/30 border-r-4 border-emerald-600 rounded-l-2xl text-slate-800 dark:text-emerald-100 font-medium italic text-base sm:text-lg">
+                      {paragraph}
+                    </blockquote>
+                  );
+                }
+
+                return (
+                  <p
+                    key={index}
+                    className={`text-slate-800 dark:text-slate-100 font-sans tracking-normal ${fontSizeClasses}`}
+                  >
+                    {paragraph}
+                  </p>
+                );
+              })}
 
               {/* If partial content, display graceful source attribution callout */}
               {!isFull && originalUrl && (
@@ -591,6 +666,97 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
           )}
 
         </aside>
+
+      </div>
+
+      {/* Post-Article Discovery Sections */}
+      <div className="pt-10 border-t border-slate-200 dark:border-slate-800 space-y-10">
+        
+        {/* Section 1: More from this source */}
+        {sourceArticles.length > 0 && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
+                <Radio className="w-5 h-5 text-emerald-600" />
+                المزيد من تغطيات: {primarySource?.name || 'نفس المصدر'}
+              </h3>
+              <span className="text-xs text-slate-400 font-bold">
+                {sourceArticles.length} مواد متاحة
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {sourceArticles.map((srcArt) => (
+                <div
+                  key={srcArt.id}
+                  onClick={() => onOpenArticleBySlug(srcArt.slug)}
+                  className="bg-white dark:bg-slate-900 rounded-2xl overflow-hidden border border-slate-200/80 dark:border-slate-800 hover:border-emerald-500/50 p-3 flex flex-col justify-between cursor-pointer transition-all group shadow-2xs hover:shadow-xs"
+                >
+                  <div className="aspect-video w-full rounded-xl overflow-hidden bg-slate-950 mb-2.5">
+                    <img
+                      src={srcArt.mainImage || DEFAULT_NEWS_IMAGE}
+                      alt={srcArt.title}
+                      onError={(e) => {
+                        e.currentTarget.src = DEFAULT_NEWS_IMAGE;
+                      }}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    />
+                  </div>
+                  <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 group-hover:text-emerald-700 dark:group-hover:text-emerald-400 line-clamp-2 leading-snug">
+                    {srcArt.title}
+                  </h4>
+                  <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                    <span>{new Date(srcArt.publishDate).toLocaleDateString('ar-YE', { month: 'short', day: 'numeric' })}</span>
+                    <span className="text-emerald-600 font-bold flex items-center gap-1">
+                      قراءة
+                      <ChevronLeft className="w-3 h-3" />
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Section 2: Latest News Grid */}
+        {latestArticles.length > 0 && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
+                <Clock className="w-5 h-5 text-emerald-600" />
+                أحدث الأخبار والتغطيات
+              </h3>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {latestArticles.map((latArt) => (
+                <div
+                  key={latArt.id}
+                  onClick={() => onOpenArticleBySlug(latArt.slug)}
+                  className="bg-white dark:bg-slate-900 rounded-2xl overflow-hidden border border-slate-200/80 dark:border-slate-800 hover:border-emerald-500/50 p-3 flex flex-col justify-between cursor-pointer transition-all group shadow-2xs hover:shadow-xs"
+                >
+                  <div className="aspect-video w-full rounded-xl overflow-hidden bg-slate-950 mb-2.5">
+                    <img
+                      src={latArt.mainImage || DEFAULT_NEWS_IMAGE}
+                      alt={latArt.title}
+                      onError={(e) => {
+                        e.currentTarget.src = DEFAULT_NEWS_IMAGE;
+                      }}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    />
+                  </div>
+                  <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 group-hover:text-emerald-700 dark:group-hover:text-emerald-400 line-clamp-2 leading-snug">
+                    {latArt.title}
+                  </h4>
+                  <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                    <span className="text-emerald-700 dark:text-emerald-400 font-bold">{latArt.category}</span>
+                    <span>{new Date(latArt.publishDate).toLocaleDateString('ar-YE', { month: 'short', day: 'numeric' })}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
       </div>
     </article>

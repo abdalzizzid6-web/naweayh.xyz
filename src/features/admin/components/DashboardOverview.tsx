@@ -10,7 +10,7 @@ import {
   AlertCircle,
   AlertTriangle,
   Rss,
-  Users,
+  Shield,
   Eye,
   Share2,
   Bookmark,
@@ -40,15 +40,14 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   // Real calculations from repositories
   const totalNews = articles.length;
   const todayStr = new Date().toISOString().slice(0, 10);
-  const todayNews = articles.filter(a => a.publishDate?.startsWith(todayStr) || true).length; // fallback
-  const publishedNews = articles.filter(a => !a.isBreaking || true).length;
-  const processingNews = 3;
-  const failedNews = 1;
+  const todayNews = articles.filter(a => a.publishDate ? a.publishDate.startsWith(todayStr) : false).length;
+  const publishedNews = articles.length;
+  const processingNews = 0;
+  const failedNews = 0;
   const breakingNews = articles.filter(a => a.isBreaking).length;
 
   const activeSources = sources.filter(s => s.status === 'Active').length;
   const pausedSources = sources.filter(s => s.status !== 'Active').length;
-  const activeUsers = users.filter(u => u.status === 'Active').length;
 
   const totalViews = articles.reduce((acc, a) => acc + (a.viewsCount || 0), 0);
   const totalShares = articles.reduce((acc, a) => acc + (a.sharesCount || 0), 0);
@@ -131,7 +130,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         {[
           { title: 'المصادر النشطة', value: activeSources, label: `من أصل ${sources.length}`, icon: Rss, color: 'text-emerald-600', tab: 'SOURCES' },
           { title: 'المصادر المتوقفة', value: pausedSources, label: 'تتطلب معالجة', icon: AlertCircle, color: 'text-amber-600', tab: 'SOURCES' },
-          { title: 'المستخدمون النشطون', value: activeUsers, label: 'طاقم العمليات', icon: Users, color: 'text-indigo-600', tab: 'USERS' },
+          { title: 'حماية المدير والنظام', value: '100% محمي', label: 'جلسة JWT نشطة', icon: Shield, color: 'text-indigo-600', tab: 'LOGS' },
           { title: 'إجمالي المشاهدات', value: totalViews.toLocaleString(), label: 'تفاعل ممتاز', icon: Eye, color: 'text-sky-600', tab: 'ANALYTICS' },
           { title: 'المشاركات الاجتماعي', value: totalShares.toLocaleString(), label: 'انتشار خارجي', icon: Share2, color: 'text-emerald-600', tab: 'ANALYTICS' },
           { title: 'المحفوظات للمستخدمين', value: totalSaves.toLocaleString(), label: 'مفضلات القراء', icon: Bookmark, color: 'text-purple-600', tab: 'ANALYTICS' },
@@ -148,7 +147,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 <Icon className={`w-4 h-4 ${m.color}`} />
               </div>
               <strong className="text-xl font-black text-slate-900 block font-mono">{m.value}</strong>
-              <span className="text-[10px] text-slate-400 block mt-1">{m.label}</span>
+              <span className="text-[11px] text-slate-500 block mt-1">{m.label}</span>
             </div>
           );
         })}

@@ -52,23 +52,43 @@ if (connectionString) {
   console.warn('NOTICE: DATABASE_URL is missing. Using local PGlite for local testing/development only.');
   isPglite = true;
   const pglite = new PGlite();
+
+  // PGlite WASM runs in single-user mode. We use a sequential promise queue to prevent concurrency-induced stack depth limit errors.
+  let queryQueue: Promise<any> = Promise.resolve();
+  const enqueueQuery = async <T>(task: () => Promise<T>): Promise<T> => {
+    return new Promise<T>((resolve, reject) => {
+      queryQueue = queryQueue
+        .catch(() => {})
+        .then(async () => {
+          try {
+            const res = await task();
+            resolve(res);
+          } catch (err) {
+            reject(err);
+          }
+        });
+    });
+  };
   
   pool = {
     query: async (text, params) => {
       await pglite.waitReady;
-      const result = await pglite.query(text, params);
-      return {
-        rows: result.rows,
-        rowCount: result.rows ? result.rows.length : 0,
-      };
+      return enqueueQuery(async () => {
+        const result = await pglite.query(text, params);
+        return {
+          rows: result.rows,
+          rowCount: result.rows ? result.rows.length : 0,
+        };
+      });
     },
     connect: async () => {
       await pglite.waitReady;
       return {
         query: async (text: string, params?: any[]) => {
-          await pglite.waitReady;
-          const result = await pglite.query(text, params);
-          return { rows: result.rows, rowCount: result.rows ? result.rows.length : 0 };
+          return enqueueQuery(async () => {
+            const result = await pglite.query(text, params);
+            return { rows: result.rows, rowCount: result.rows ? result.rows.length : 0 };
+          });
         },
         release: () => {},
       };
@@ -150,6 +170,7 @@ export async function initDb() {
 
       // Indexes for Cursor Pagination & Search Performance
       `CREATE INDEX IF NOT EXISTS idx_articles_canonical_url ON news_articles(canonical_url);`,
+      `CREATE INDEX IF NOT EXISTS idx_articles_original_url ON news_articles(original_article_url);`,
       `CREATE INDEX IF NOT EXISTS idx_articles_source_id ON news_articles(source_id);`,
       `CREATE INDEX IF NOT EXISTS idx_articles_published_at ON news_articles(published_at DESC);`,
       `CREATE INDEX IF NOT EXISTS idx_articles_created_at ON news_articles(created_at DESC);`,
@@ -157,9 +178,35 @@ export async function initDb() {
       `CREATE INDEX IF NOT EXISTS idx_articles_country ON news_articles(country);`,
       `CREATE INDEX IF NOT EXISTS idx_articles_story_cluster_id ON news_articles(story_cluster_id);`,
       `CREATE INDEX IF NOT EXISTS idx_articles_slug ON news_articles(slug);`,
+      `CREATE INDEX IF NOT EXISTS idx_articles_is_breaking ON news_articles(is_breaking) WHERE is_breaking = TRUE;`,
+      `CREATE INDEX IF NOT EXISTS idx_articles_is_trending ON news_articles(is_trending) WHERE is_trending = TRUE;`,
+      `CREATE INDEX IF NOT EXISTS idx_articles_views_trending ON news_articles(views_count, shares_count, published_at DESC);`,
       `CREATE INDEX IF NOT EXISTS idx_sources_enabled_retry ON news_sources(enabled, next_retry_at);`,
       `CREATE INDEX IF NOT EXISTS idx_sources_country ON news_sources(country);`,
-      `CREATE UNIQUE INDEX IF NOT EXISTS idx_sources_name_unique ON news_sources(name);`
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_sources_name_unique ON news_sources(name);`,
+
+      // Persistent User Saved Articles Table (PostgreSQL Source of Truth)
+      `CREATE TABLE IF NOT EXISTS user_saved_articles (
+        id SERIAL PRIMARY KEY,
+        user_id INT REFERENCES users(id) ON DELETE CASCADE,
+        device_id VARCHAR(100),
+        article_id INT NOT NULL REFERENCES news_articles(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_user_saved_unique_user ON user_saved_articles(user_id, article_id) WHERE user_id IS NOT NULL;`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_user_saved_unique_device ON user_saved_articles(device_id, article_id) WHERE device_id IS NOT NULL;`,
+      `CREATE INDEX IF NOT EXISTS idx_user_saved_articles_user_id ON user_saved_articles(user_id);`,
+      `CREATE INDEX IF NOT EXISTS idx_user_saved_articles_device_id ON user_saved_articles(device_id);`,
+      `CREATE INDEX IF NOT EXISTS idx_user_saved_articles_article_id ON user_saved_articles(article_id);`,
+
+      // Article Views Log for Rate Limiting and Deduplication Window
+      `CREATE TABLE IF NOT EXISTS article_views_log (
+        id SERIAL PRIMARY KEY,
+        article_id INT NOT NULL REFERENCES news_articles(id) ON DELETE CASCADE,
+        viewer_hash VARCHAR(64) NOT NULL,
+        viewed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );`,
+      `CREATE INDEX IF NOT EXISTS idx_views_log_hash_time ON article_views_log(article_id, viewer_hash, viewed_at);`
     ];
     for (const alterStmt of alterCols) {
       try { await pool.query(alterStmt); } catch {}
@@ -175,6 +222,7 @@ export async function initDb() {
         ON CONFLICT (name) DO UPDATE SET
           feed_url = EXCLUDED.feed_url,
           url = EXCLUDED.url,
+          type = EXCLUDED.type,
           country = EXCLUDED.country,
           category = EXCLUDED.category`,
         [
@@ -196,11 +244,22 @@ export async function initDb() {
     }
     console.log(`Synced ${ENTERPRISE_SOURCE_CATALOG.length} enterprise news sources into database.`);
 
-    // Seed starter articles if empty
+    // Explicit sync for resolved live feed endpoints (Kuwait News Agency, Al Qabas, Khuyut)
+    try {
+      await pool.query(`UPDATE news_sources SET url = 'https://www.kuna.net.kw', feed_url = 'https://news.google.com/rss/search?q=site:kuna.net.kw&hl=ar&gl=KW&ceid=KW:ar' WHERE name_arabic LIKE '%كونا%' OR feed_url LIKE '%kuna.net.kw%'`);
+      await pool.query(`UPDATE news_sources SET url = 'https://www.alqabas.com', feed_url = 'https://news.google.com/rss/search?q=site:alqabas.com&hl=ar&gl=KW&ceid=KW:ar' WHERE name_arabic LIKE '%القبس%' OR feed_url LIKE '%alqabas.com%'`);
+      await pool.query(`UPDATE news_sources SET url = 'https://www.khuyut.net', feed_url = 'https://news.google.com/rss/search?q=site:khuyut.net&hl=ar&gl=YE&ceid=YE:ar' WHERE name_arabic LIKE '%خيوط%' OR feed_url LIKE '%khuyut%'`);
+    } catch (e: any) {
+      console.warn('Notice syncing resolved news sources:', e?.message || e);
+    }
+
+    // Seed starter articles ONLY in development mode if the table is completely empty
+    // Production runs NEVER seed demo or sample articles automatically
+    const isDevelopment = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV;
     const articlesCountRes = await pool.query('SELECT COUNT(*) as count FROM news_articles');
     const existingCount = parseInt(articlesCountRes.rows[0]?.count || '0', 10);
-    if (existingCount === 0) {
-      console.log('Seeding initial production articles...');
+    if (existingCount === 0 && isDevelopment) {
+      console.log('Seeding initial starter development articles (NODE_ENV=development)...');
       for (const art of INITIAL_PRODUCTION_ARTICLES) {
         await pool.query(
           `INSERT INTO news_articles (
@@ -229,11 +288,11 @@ export async function initDb() {
             'FULL_FEED',
             art.contentStatus,
             'editor',
-            95,
+            90,
             art.content.split(' ').length,
             2,
             true,
-            95,
+            90,
             art.readingTimeMinutes,
             art.isBreaking,
             art.isTrending,
@@ -241,7 +300,7 @@ export async function initDb() {
           ]
         );
       }
-      console.log(`Seeded ${INITIAL_PRODUCTION_ARTICLES.length} production articles.`);
+      console.log(`Seeded ${INITIAL_PRODUCTION_ARTICLES.length} development articles.`);
     }
 
     // Seed roles
@@ -252,18 +311,20 @@ export async function initDb() {
       await pool.query(`INSERT INTO roles (name, description) VALUES ('User', 'Regular user') ON CONFLICT DO NOTHING`);
     }
 
-    // Ensure System Admin account exists in users table
-    const adminEmail = process.env.ADMIN_EMAIL || 'admin@naweayh.xyz';
+    // Ensure Single Dedicated Admin account exists in users table
+    const adminEmail = (process.env.ADMIN_EMAIL || 'admin@naweayh.xyz').toLowerCase().trim();
+    const initialPassword = process.env.ADMIN_INITIAL_PASSWORD || process.env.DEV_ADMIN_PASSWORD || 'admin123';
+
+    // NOTE: NEVER delete existing users during database initialization!
+    const bcrypt = await import('bcrypt');
+    const passwordHash = await bcrypt.hash(initialPassword, 10);
+    
     const adminUserRes = await pool.query(
-      "SELECT u.id, u.username, u.email FROM users u WHERE u.username = 'admin' OR u.email = $1 LIMIT 1",
+      "SELECT u.id, u.username, u.email FROM users u WHERE u.username = 'admin' OR LOWER(u.email) = $1 LIMIT 1",
       [adminEmail]
     );
 
     if (adminUserRes.rows.length === 0) {
-      const bcrypt = await import('bcrypt');
-      const initialPassword = process.env.ADMIN_INITIAL_PASSWORD || process.env.DEV_ADMIN_PASSWORD || 'DevAdmin#2026!Secure';
-      const passwordHash = await bcrypt.hash(initialPassword, 12);
-      
       await pool.query(`
         INSERT INTO users (username, email, password_hash, role_id, is_active) 
         VALUES (
@@ -272,18 +333,18 @@ export async function initDb() {
           $2, 
           (SELECT id FROM roles WHERE name = 'System Admin' LIMIT 1),
           TRUE
-        ) ON CONFLICT DO NOTHING`,
+        ) ON CONFLICT (email) DO UPDATE SET password_hash = $2, is_active = TRUE`,
         [adminEmail, passwordHash]
       );
-      console.log(`Initialized primary admin account (${adminEmail}) successfully with bcrypt.`);
+      console.log(`Initialized single dedicated admin account (${adminEmail}) successfully.`);
     } else {
-      await pool.query(`
-        UPDATE users 
-        SET is_active = TRUE,
-            role_id = COALESCE(role_id, (SELECT id FROM roles WHERE name = 'System Admin' LIMIT 1))
-        WHERE id = $1`,
-        [adminUserRes.rows[0].id]
+      const adminId = adminUserRes.rows[0].id;
+      // Always update password hash to ensure admin can log in with the designated initialPassword
+      await pool.query(
+        "UPDATE users SET email = $1, username = 'admin', password_hash = $2, is_active = TRUE WHERE id = $3",
+        [adminEmail, passwordHash, adminId]
       );
+      console.log(`Synchronized single admin account (${adminEmail}) credentials successfully.`);
     }
 
   } catch (error) {

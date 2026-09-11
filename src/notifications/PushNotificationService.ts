@@ -86,26 +86,25 @@ export class PushNotificationService {
   }): PushNotificationCampaign {
     const providerConfig = this.getProviderConfig();
 
-    // 1. Calculate Delivery Device Counts based on Provider & Target
-    let baseAudienceCount = 1000000;
-    if (params.targetType === 'ALL') baseAudienceCount = 4100000;
-    else if (params.targetType === 'BREAKING_SUBSCRIBERS') baseAudienceCount = 2800000;
-    else if (params.targetType === 'CATEGORY') baseAudienceCount = 1250000;
-    else if (params.targetType === 'COUNTRY') baseAudienceCount = 1850000;
-    else if (params.targetType === 'INTEREST') baseAudienceCount = 950000;
-    else if (params.targetType === 'PERSONALIZED_SEGMENT') baseAudienceCount = 180000;
+    // 1. Calculate Delivery Device Counts based on actual configured Provider tokens
+    const fcmTokens = (providerConfig.fcm.enabled && providerConfig.fcm.status === 'Connected')
+      ? providerConfig.fcm.activeTokensCount
+      : 0;
+    const oneSignalTokens = (providerConfig.oneSignal.enabled && providerConfig.oneSignal.status === 'Connected')
+      ? providerConfig.oneSignal.activePlayersCount
+      : 0;
 
     let fcmCount = 0;
     let oneSignalCount = 0;
 
     if (params.provider === 'Firebase_FCM') {
-      fcmCount = baseAudienceCount;
+      fcmCount = fcmTokens;
     } else if (params.provider === 'OneSignal') {
-      oneSignalCount = Math.floor(baseAudienceCount * 0.7);
+      oneSignalCount = oneSignalTokens;
     } else {
       // Hybrid Dual
-      fcmCount = Math.floor(baseAudienceCount * 0.6);
-      oneSignalCount = Math.floor(baseAudienceCount * 0.4);
+      fcmCount = fcmTokens;
+      oneSignalCount = oneSignalTokens;
     }
 
     const totalDelivery = fcmCount + oneSignalCount;
@@ -125,43 +124,39 @@ export class PushNotificationService {
       const delA = Math.floor(totalDelivery * (split / 100));
       const delB = totalDelivery - delA;
 
-      const openRateA = parseFloat((Math.random() * 5 + 14).toFixed(1));
-      const openRateB = parseFloat((Math.random() * 5 + 12).toFixed(1));
-
-      const openA = Math.floor((delA * openRateA) / 100);
-      const openB = Math.floor((delB * openRateB) / 100);
-
       fullABConfig = {
         enabled: true,
         splitRatioPercent: split,
-        winningVariant: openRateA >= openRateB ? 'A' : 'B',
+        winningVariant: undefined,
         variantA: {
           variantId: 'A',
           title: params.title,
           body: params.body,
           deliveryCount: delA,
-          openCount: openA,
-          clickCount: Math.floor(openA * 0.85),
-          openRatePercent: openRateA,
-          ctrPercent: parseFloat((openRateA * 0.85).toFixed(1)),
+          openCount: 0,
+          clickCount: 0,
+          openRatePercent: 0,
+          ctrPercent: 0,
         },
         variantB: {
           variantId: 'B',
           title: params.abTestConfig.titleB,
           body: params.abTestConfig.bodyB,
           deliveryCount: delB,
-          openCount: openB,
-          clickCount: Math.floor(openB * 0.82),
-          openRatePercent: openRateB,
-          ctrPercent: parseFloat((openRateB * 0.82).toFixed(1)),
+          openCount: 0,
+          clickCount: 0,
+          openRatePercent: 0,
+          ctrPercent: 0,
         },
       };
     }
 
-    const status = params.isScheduled ? 'Scheduled' : 'Sent';
+    const status = params.isScheduled 
+      ? 'Scheduled' 
+      : (totalDelivery > 0 ? 'Sent' : 'Draft');
     const sentAtTime = params.isScheduled ? undefined : new Date().toLocaleString('ar-SA');
-    const openRate = params.isScheduled ? 0 : parseFloat((Math.random() * 6 + 13).toFixed(1));
-    const clicks = params.isScheduled ? 0 : Math.floor((totalDelivery * openRate) / 100 * 0.8);
+    const openRate = 0;
+    const clicks = 0;
 
     const campaign = notificationsRepository.createCampaign({
       title: params.title,

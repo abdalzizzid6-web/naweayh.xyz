@@ -1,6 +1,6 @@
 {
-  "name": "OmniNews — المنصة الإخبارية الذكية الأولى",
-  "description": "OmniNews - المنصة الإخبارية الذكية الأولى والأخبار كما تستحق أن تُقرأ. تغطية لحظية بالذكاء الاصطناعي، تحليلات موثوقة لأخبار اليمن والعالم العربي، ودعم كامل لمحركات البحث SEO وGoogle News.",
+  "name": "Naw3iya News — أخبار نوعية",
+  "description": "منصة أخبار نوعية (Naw3iya News) - المنصة الإخبارية العربية الذكية الأولى. تغطية مباشرة ومحققة بالذكاء الاصطناعي لأخبار اليمن والعالم العربي والعالم، مع فهرسة فورية لمحركات البحث وGoogle News على الدومين الرسمي naweayh.xyz.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

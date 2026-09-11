@@ -8,11 +8,11 @@ import {
   NewsArticle,
 } from '../core/domain/types';
 
-// In-Memory L1 & Simulated L2 Redis Cache Layer
+// In-Memory L1 Client/Server Cache Engine
 class EnterpriseCacheEngine {
   private memoryCache = new Map<string, { value: any; expiresAt: number }>();
-  private hits = 142850;
-  private misses = 820;
+  private hits = 0;
+  private misses = 0;
 
   public get<T>(key: string): T | null {
     const item = this.memoryCache.get(key);
@@ -44,7 +44,7 @@ class EnterpriseCacheEngine {
 
   public getHitRate(): number {
     const total = this.hits + this.misses;
-    return total > 0 ? parseFloat(((this.hits / total) * 100).toFixed(2)) : 99.4;
+    return total > 0 ? parseFloat(((this.hits / total) * 100).toFixed(2)) : 0;
   }
 
   public purgeAll(): void {
@@ -52,28 +52,28 @@ class EnterpriseCacheEngine {
     this.hits = 0;
     this.misses = 0;
   }
+
+  public size(): number {
+    return this.memoryCache.size;
+  }
 }
 
 export const cacheEngine = new EnterpriseCacheEngine();
 
 export class EnterpriseScalingService {
+  // Redis is marked as NOT_CONFIGURED when no external Redis server is connected
   private redisMetrics: RedisCacheMetrics = {
-    totalKeys: 1250000,
-    memoryUsedMB: 1840,
-    hitRatePercent: 99.42,
-    evictionPolicy: 'allkeys-lru',
-    clusterNodes: 6,
-    queriesPerSecond: 45200,
+    status: 'NOT_CONFIGURED',
+    totalKeys: null,
+    memoryUsedMB: null,
+    hitRatePercent: null,
+    evictionPolicy: 'not_configured',
+    clusterNodes: null,
+    queriesPerSecond: null,
   };
 
-  private cdnNodes: CDNEdgeNode[] = [
-    { city: 'الرياض', country: 'السعودية', latencyMs: 4, cacheHitPercent: 99.8, http3Enabled: true, status: 'Optimized' },
-    { city: 'جدة', country: 'السعودية', latencyMs: 6, cacheHitPercent: 99.6, http3Enabled: true, status: 'Optimized' },
-    { city: 'دبي', country: 'الإمارات', latencyMs: 9, cacheHitPercent: 99.5, http3Enabled: true, status: 'Optimized' },
-    { city: 'القاهرة', country: 'مصر', latencyMs: 18, cacheHitPercent: 98.9, http3Enabled: true, status: 'Optimized' },
-    { city: 'لندن', country: 'بريطانيا', latencyMs: 42, cacheHitPercent: 98.4, http3Enabled: true, status: 'Active' },
-    { city: 'فرانکفورت', country: 'ألمانيا', latencyMs: 38, cacheHitPercent: 98.7, http3Enabled: true, status: 'Active' },
-  ];
+  // CDN edges are empty and marked NOT_CONFIGURED until an edge CDN provider (e.g. Cloudflare) is connected
+  private cdnNodes: CDNEdgeNode[] = [];
 
   private imageConfig: ImageOptimizationConfig = {
     defaultFormat: 'AVIF',
@@ -81,13 +81,13 @@ export class EnterpriseScalingService {
     autoResizeWidths: [320, 640, 800, 1200, 1920],
     blurPlaceholderEnabled: true,
     lazyLoadNative: true,
-    cdnImageProxyDomain: 'https://images-cdn.naweayh.xyz',
+    cdnImageProxyDomain: '',
   };
 
   private pwaConfig: PWAServiceWorkerConfig = {
-    registered: true,
-    offlineStorageMB: 124.5,
-    cachedArticlesCount: 450,
+    registered: typeof navigator !== 'undefined' && 'serviceWorker' in navigator,
+    offlineStorageMB: 0,
+    cachedArticlesCount: 0,
     backgroundSyncPending: 0,
     http3Support: true,
     brotliCompression: true,
@@ -95,12 +95,13 @@ export class EnterpriseScalingService {
   };
 
   private dbOptimizer: DatabaseIndexOptimizerConfig = {
-    totalPartitionedRecords: 10450000, // 10.45M Articles
-    activeCompositeIndexes: 14,
-    avgQueryExecutionMs: 1.18,
+    status: 'NOT_CONFIGURED',
+    totalPartitionedRecords: null,
+    activeCompositeIndexes: null,
+    avgQueryExecutionMs: null,
     cursorPaginationEnabled: true,
-    readReplicasCount: 4,
-    pgBouncerPoolSize: 200,
+    readReplicasCount: null,
+    pgBouncerPoolSize: null,
   };
 
   // --- 1. IMAGE OPTIMIZATION HELPER ---
@@ -114,10 +115,13 @@ export class EnterpriseScalingService {
       const fmt = format.toLowerCase();
       return `${originalUrl}&w=${width}&auto=format&fit=crop&q=${this.imageConfig.qualityPercent}&fm=${fmt}`;
     }
-    return `${this.imageConfig.cdnImageProxyDomain}/fit-in/${width}x0/filters:format(${format.toLowerCase()}):quality(${this.imageConfig.qualityPercent})/${encodeURIComponent(originalUrl)}`;
+    if (this.imageConfig.cdnImageProxyDomain) {
+      return `${this.imageConfig.cdnImageProxyDomain}/fit-in/${width}x0/filters:format(${format.toLowerCase()}):quality(${this.imageConfig.qualityPercent})/${encodeURIComponent(originalUrl)}`;
+    }
+    return originalUrl;
   }
 
-  // --- 2. CURSOR PAGINATION FOR 10M+ RECORDS ---
+  // --- 2. CURSOR PAGINATION USING REAL MEASURED PERFORMANCE ---
   public getCursorPaginatedArticles(
     articles: NewsArticle[],
     cursor?: string,
@@ -125,6 +129,7 @@ export class EnterpriseScalingService {
     category?: string,
     country?: string
   ) {
+    const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
     let filtered = articles;
     if (category && category !== 'الكل') {
       filtered = filtered.filter((a) => a.category === category);
@@ -143,22 +148,29 @@ export class EnterpriseScalingService {
 
     const items = filtered.slice(startIndex, startIndex + limit);
     const nextCursor = items.length > 0 && startIndex + limit < filtered.length ? items[items.length - 1].id : null;
+    const durationMs = typeof performance !== 'undefined' ? (performance.now() - startTime).toFixed(2) : '1.0';
 
     return {
       items,
       nextCursor,
       hasMore: nextCursor !== null,
-      totalClusterCount: this.dbOptimizer.totalPartitionedRecords,
-      queryExecutionMs: (Math.random() * 0.8 + 0.8).toFixed(2), // 0.8ms - 1.6ms
+      totalClusterCount: articles.length,
+      queryExecutionMs: durationMs,
       usedIndex: `idx_news_${category || 'all'}_published_desc`,
     };
   }
 
   // --- 3. REDIS CACHE OPERATIONS ---
   public getRedisMetrics(): RedisCacheMetrics {
+    // If Redis is not configured, report NOT_CONFIGURED status with real in-memory keys
     return {
-      ...this.redisMetrics,
+      status: 'NOT_CONFIGURED',
+      totalKeys: cacheEngine.size(),
+      memoryUsedMB: null,
       hitRatePercent: cacheEngine.getHitRate(),
+      evictionPolicy: 'not_configured',
+      clusterNodes: null,
+      queriesPerSecond: null,
     };
   }
 
@@ -167,16 +179,16 @@ export class EnterpriseScalingService {
     if (tag) {
       purged = cacheEngine.invalidateTag(tag);
     } else {
+      purged = cacheEngine.size();
       cacheEngine.purgeAll();
-      purged = this.redisMetrics.totalKeys;
     }
 
     auditRepository.logAction(
       'Performance Engine',
       'System Admin',
-      'PURGE_REDIS_CACHE',
+      'PURGE_CACHE',
       tag || 'GLOBAL',
-      `Purged Redis L2 cache keys for tag: ${tag || 'ALL_KEYS'}`
+      `Purged cache keys for tag: ${tag || 'ALL_KEYS'}`
     );
 
     return purged;
@@ -193,7 +205,7 @@ export class EnterpriseScalingService {
       'System Admin',
       'PURGE_CDN_CACHE',
       city || 'GLOBAL_EDGE',
-      `Edge CDN Cache Purged across nodes ${city || 'ALL_CITIES'}`
+      `CDN Cache purge requested for: ${city || 'ALL_CITIES'}`
     );
     return true;
   }
@@ -220,14 +232,14 @@ export class EnterpriseScalingService {
   }
 
   public triggerOfflineBackgroundSync(): number {
-    const syncedCount = 14;
+    const syncedCount = this.pwaConfig.backgroundSyncPending;
     this.pwaConfig.backgroundSyncPending = 0;
     auditRepository.logAction(
       'Performance Engine',
       'Operations Lead',
       'TRIGGER_BACKGROUND_SYNC',
       'PWA Worker',
-      `Flushed ${syncedCount} queued background actions to cloud servers.`
+      `Processed background sync queue.`
     );
     return syncedCount;
   }
@@ -241,8 +253,8 @@ export class EnterpriseScalingService {
       'Performance Engine',
       'System Admin',
       'REBUILD_DATABASE_INDEXES',
-      'PostgreSQL / Firestore Cluster',
-      `Reindexed 10.45M partitioned records across 14 composite B-Tree indexes. Query execution optimized.`
+      'Database Cluster',
+      `Composite database index optimization request triggered.`
     );
   }
 }

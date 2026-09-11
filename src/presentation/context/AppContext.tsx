@@ -46,6 +46,7 @@ interface AppContextType {
   notificationsOpen: boolean;
   setNotificationsOpen: (open: boolean) => void;
   isAuthLoading: boolean;
+  logout: () => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -73,7 +74,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           email: user.email,
           role: user.role,
           avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=150',
-          department: 'غرفة الأخبار — OmniNews',
+          department: 'غرفة الأخبار — أخبار نوعية',
         });
       }
       setIsAuthLoading(false);
@@ -122,7 +123,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setActiveTabState('saved');
     } else if (pathname.startsWith('/my-feed')) {
       setActiveTabState('my_feed');
-    } else if (pathname.startsWith('/admin')) {
+    } else if (pathname.startsWith('/admin') || pathname.startsWith('/dashboard')) {
       setActiveTabState('admin');
     } else if (pathname.startsWith('/mobile')) {
       setActiveTabState('mobile');
@@ -195,6 +196,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }));
   };
 
+  const logout = () => {
+    AuthService.clearToken();
+    setCurrentUser(null);
+    setActiveTabState('admin');
+    if (window.location.pathname !== '/admin') {
+      window.history.pushState({}, '', '/admin');
+      setCurrentPath('/admin');
+    }
+  };
+
   return (
     <AppContext.Provider
       value={{
@@ -216,6 +227,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         notificationsOpen,
         setNotificationsOpen,
         isAuthLoading,
+        logout,
       }}
     >
       {children}

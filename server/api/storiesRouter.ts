@@ -1,36 +1,11 @@
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router } from 'express';
 import { pool } from '../db/connection';
 import { storyClusteringService } from '../services/StoryClusteringService';
-import jwt from 'jsonwebtoken';
-import { getJwtSecret } from './authRouter';
+import { requireAdminAuth } from './authRouter';
 
 export const storiesApiRouter = Router();
 
-const checkAdminRole = (req: Request, res: Response, next: NextFunction) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(403).json({ success: false, code: 'FORBIDDEN', message: 'غير مصرح لك بالوصول. الرجاء تسجيل الدخول.' });
-  }
-
-  const token = authHeader.split(' ')[1];
-  try {
-    const secret = getJwtSecret();
-    const decoded = jwt.verify(token, secret, {
-      issuer: 'naw3iya-auth-service',
-    }) as any;
-    const userRole = decoded.role;
-    const allowedRoles = ['System Admin', 'Super Admin', 'Admin', 'Editor-in-Chief', 'Editor', 'Author', 'Moderator', 'Analyst'];
-
-    if (!userRole || !allowedRoles.includes(userRole)) {
-      return res.status(403).json({ success: false, code: 'FORBIDDEN', message: 'غير مصرح لك بالوصول (RBAC).' });
-    }
-    
-    (req as any).user = decoded;
-    next();
-  } catch (err) {
-    return res.status(401).json({ success: false, code: 'UNAUTHORIZED', message: 'الجلسة منتهية أو غير صالحة' });
-  }
-};
+const checkAdminRole = requireAdminAuth;
 
 // GET /api/v1/stories - List story clusters
 storiesApiRouter.get(['/v1/stories', '/stories'], async (req, res) => {

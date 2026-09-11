@@ -11,25 +11,12 @@ import { pgArticlesRepository } from './server/repositories/pgArticlesRepository
 import { mapDbRowToArticle } from './server/api/newsRouter';
 
 async function renderPageSSR(rawHtml: string, reqPath: string, queryParams: any): Promise<{ html: string; status: number }> {
-  if (articlesRepository.getAll().length === 0) {
-    await syncDatabaseArticlesToRepository();
-  }
-  const allArticles = articlesRepository.getAll();
-
   // 1. Article Page /news/:slug
   const newsMatch = reqPath.match(/^\/news\/([^\/]+)/);
   if (newsMatch) {
     const rawSlug = decodeURIComponent(newsMatch[1]);
-    let article = articlesRepository.getBySlug(rawSlug) || articlesRepository.getById(rawSlug);
-    
-    // Fallback: Query PostgreSQL directly if not in memory
-    if (!article) {
-      const dbRow = await pgArticlesRepository.getArticleBySlugOrId(rawSlug);
-      if (dbRow) {
-        article = mapDbRowToArticle(dbRow);
-        articlesRepository.add(article);
-      }
-    }
+    const dbRow = await pgArticlesRepository.getArticleBySlugOrId(rawSlug);
+    let article = dbRow ? mapDbRowToArticle(dbRow) : articlesRepository.getBySlug(rawSlug) || articlesRepository.getById(rawSlug);
 
     if (article) {
       const meta = seoEngineService.generateMetaTags(article);
@@ -52,9 +39,10 @@ async function renderPageSSR(rawHtml: string, reqPath: string, queryParams: any)
   const categoryMatch = reqPath.match(/^\/category\/([^\/]+)/);
   if (categoryMatch) {
     const categoryName = decodeURIComponent(categoryMatch[1]);
-    const categoryArticles = allArticles.filter(
-      (a) => a.category && a.category.toLowerCase() === categoryName.toLowerCase()
-    );
+    const dbRes = await pgArticlesRepository.getFilteredArticles({ category: categoryName, limit: 12 });
+    const categoryArticles = dbRes.data.length > 0 
+      ? dbRes.data.map(mapDbRowToArticle)
+      : articlesRepository.getAll().filter((a) => a.category && a.category.toLowerCase() === categoryName.toLowerCase());
     const meta = seoEngineService.generateCategoryMetaTags(categoryName);
     const schemas = [
       seoEngineService.generateCategoryBreadcrumbSchema(categoryName),
@@ -69,9 +57,10 @@ async function renderPageSSR(rawHtml: string, reqPath: string, queryParams: any)
   const sourceMatch = reqPath.match(/^\/source\/([^\/]+)/);
   if (sourceMatch) {
     const sourceName = decodeURIComponent(sourceMatch[1]);
-    const sourceArticles = allArticles.filter((a) =>
-      a.sources && a.sources.some((s) => s.name.toLowerCase() === sourceName.toLowerCase())
-    );
+    const dbRes = await pgArticlesRepository.getFilteredArticles({ search: sourceName, limit: 12 });
+    const sourceArticles = dbRes.data.length > 0
+      ? dbRes.data.map(mapDbRowToArticle)
+      : articlesRepository.getAll().filter((a) => a.sources && a.sources.some((s) => s.name.toLowerCase() === sourceName.toLowerCase()));
     const meta = seoEngineService.generateSourceMetaTags(sourceName);
     const schemas = [
       seoEngineService.generateSourceBreadcrumbSchema(sourceName),
@@ -100,6 +89,8 @@ async function renderPageSSR(rawHtml: string, reqPath: string, queryParams: any)
   }
 
   // 6. Homepage & Default Routes
+  const dbRes = await pgArticlesRepository.getFilteredArticles({ limit: 12 });
+  const allArticles = dbRes.data.length > 0 ? dbRes.data.map(mapDbRowToArticle) : articlesRepository.getAll();
   const meta = seoEngineService.generateMetaTags();
   const schemas = [
     seoEngineService.generateWebSiteSchema(),

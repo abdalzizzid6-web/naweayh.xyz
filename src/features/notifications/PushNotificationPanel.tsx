@@ -211,9 +211,11 @@ export const PushNotificationPanel: React.FC = () => {
           <div className="flex items-center gap-2 mb-2">
             <span className="bg-indigo-500/20 text-indigo-300 text-xs px-3 py-1 rounded-full border border-indigo-500/30 font-bold flex items-center gap-1.5">
               <Bell className="w-3.5 h-3.5 text-indigo-400" />
-              Enterprise Push Engine v5.0
+              Enterprise Push Engine
             </span>
-            <Badge variant="emerald">FCM & OneSignal Active</Badge>
+            <Badge variant={providerConfig.fcm.status === 'Connected' || providerConfig.oneSignal.status === 'Connected' ? "emerald" : "slate"}>
+              {providerConfig.fcm.status === 'Connected' || providerConfig.oneSignal.status === 'Connected' ? "Connected" : "Not Configured / Disconnected"}
+            </Badge>
           </div>
           <h2 className="text-2xl font-black text-white">محرك الإشعارات الفورية والتنبيهات المخصصة (Notification Engine)</h2>
           <p className="text-slate-300 text-xs mt-1 max-w-3xl leading-relaxed">
@@ -224,12 +226,16 @@ export const PushNotificationPanel: React.FC = () => {
         {/* Live Token Metrics */}
         <div className="grid grid-cols-2 gap-3 shrink-0">
           <div className="bg-slate-900/90 p-3 rounded-xl border border-slate-800 text-center">
-            <span className="text-[10px] text-slate-400 block font-bold">مشتركو Firebase FCM</span>
-            <strong className="text-sm font-black text-amber-400">{providerConfig.fcm.activeTokensCount.toLocaleString()} جهاز</strong>
+            <span className="text-[10px] text-slate-400 block font-bold">حالة Firebase FCM</span>
+            <strong className={`text-xs font-black block ${providerConfig.fcm.status === 'Connected' ? 'text-amber-400' : 'text-slate-400'}`}>
+              {providerConfig.fcm.status === 'Connected' ? `${providerConfig.fcm.activeTokensCount.toLocaleString()} جهاز` : 'غير متصل (Not Configured)'}
+            </strong>
           </div>
           <div className="bg-slate-900/90 p-3 rounded-xl border border-slate-800 text-center">
-            <span className="text-[10px] text-slate-400 block font-bold">مشتركو OneSignal</span>
-            <strong className="text-sm font-black text-rose-400">{providerConfig.oneSignal.activePlayersCount.toLocaleString()} جهاز</strong>
+            <span className="text-[10px] text-slate-400 block font-bold">حالة OneSignal</span>
+            <strong className={`text-xs font-black block ${providerConfig.oneSignal.status === 'Connected' ? 'text-rose-400' : 'text-slate-400'}`}>
+              {providerConfig.oneSignal.status === 'Connected' ? `${providerConfig.oneSignal.activePlayersCount.toLocaleString()} جهاز` : 'غير متصل (Not Configured)'}
+            </strong>
           </div>
         </div>
       </div>
@@ -849,7 +855,9 @@ export const PushNotificationPanel: React.FC = () => {
                 </div>
                 <div className="flex justify-between p-2 bg-white rounded-lg border border-amber-100">
                   <span className="text-slate-600">حالة مفتاح الخادم Server Key:</span>
-                  <strong className="text-emerald-700 font-bold">مكون ومفعل ✅</strong>
+                  <strong className={providerConfig.fcm.serverKeyConfigured ? "text-emerald-700 font-bold" : "text-slate-500 font-bold"}>
+                    {providerConfig.fcm.serverKeyConfigured ? 'مكون ومفعل ✅' : 'غير مكون (Not Configured)'}
+                  </strong>
                 </div>
               </div>
 
@@ -867,7 +875,7 @@ export const PushNotificationPanel: React.FC = () => {
                   </div>
                   <div>
                     <h3 className="text-sm font-bold text-slate-900">OneSignal Push Platform</h3>
-                    <span className="text-[11px] text-slate-500 block font-mono">App ID: {providerConfig.oneSignal.appId}</span>
+                    <span className="text-[11px] text-slate-500 block font-mono">App ID: {providerConfig.oneSignal.appId || 'Not Set'}</span>
                   </div>
                 </div>
                 <Badge variant={providerConfig.oneSignal.status === 'Connected' ? 'emerald' : 'rose'}>
@@ -882,7 +890,9 @@ export const PushNotificationPanel: React.FC = () => {
                 </div>
                 <div className="flex justify-between p-2 bg-white rounded-lg border border-rose-100">
                   <span className="text-slate-600">حالة الربط REST API Key:</span>
-                  <strong className="text-emerald-700 font-bold">متصل بـ OneSignal v11 ✅</strong>
+                  <strong className={providerConfig.oneSignal.appIdConfigured ? "text-emerald-700 font-bold" : "text-slate-500 font-bold"}>
+                    {providerConfig.oneSignal.appIdConfigured ? 'متصل بـ OneSignal v11 ✅' : 'غير مكون (Not Configured)'}
+                  </strong>
                 </div>
               </div>
 

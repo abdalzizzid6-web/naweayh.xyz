@@ -7,18 +7,39 @@ import { sourceDiscoveryEngine } from './SourceDiscoveryEngine';
 import { cacheService } from './CacheService';
 import { articlesRepository } from '../../src/repositories/articlesRepository';
 import { mapDbRowToArticle } from '../api/newsRouter';
-
-// Prevent regional intermediate SSL certificate errors from blocking news ingestion
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+import { normalizeArabicText } from '../../src/infrastructure/utils/arabicNormalizer';
+import { duplicateDetectionEngine } from './DuplicateDetectionEngine';
+import { calculateDeterministicTrustScore } from './TrustScoreService';
 
 export function getCanonicalUrl(rawUrl: string): string {
   try {
-    const urlObj = new URL(rawUrl);
-    const trackingParams = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'fbclid', 'gclid', 'ref', 'source'];
-    trackingParams.forEach(p => urlObj.searchParams.delete(p));
-    return urlObj.toString();
+    const urlObj = new URL((rawUrl || '').trim());
+    urlObj.protocol = urlObj.protocol.toLowerCase();
+    urlObj.hostname = urlObj.hostname.toLowerCase();
+    urlObj.hash = '';
+    const trackingParams = [
+      'utm_source',
+      'utm_medium',
+      'utm_campaign',
+      'utm_term',
+      'utm_content',
+      'fbclid',
+      'gclid',
+      'ref',
+      'source',
+      '_ga',
+      'mc_eid',
+      'yclid',
+      'igshid',
+    ];
+    trackingParams.forEach((p) => urlObj.searchParams.delete(p));
+    let cleaned = urlObj.toString();
+    if (cleaned.endsWith('/') && urlObj.pathname !== '/') {
+      cleaned = cleaned.slice(0, -1);
+    }
+    return cleaned;
   } catch {
-    return rawUrl;
+    return (rawUrl || '').trim();
   }
 }
 
@@ -82,13 +103,14 @@ export interface IngestedArticleDTO {
   wordCount: number;
   paragraphCount: number;
   isFullContentAvailable: boolean;
-  trustScore: number;
+  trustScore: number | null;
   sentiment: string;
   publishedAt: Date;
   status: string;
 }
 
 export interface IngestionLog {
+  runId?: string;
   sourceId: number;
   sourceName: string;
   status: 'SUCCESS' | 'FAILED' | 'PARTIAL';
@@ -177,6 +199,101 @@ export class NewsIngestionService {
       domain = source.feedUrl.replace(/^(https?:\/\/[^\/]+).*/, '$1');
     }
 
+    // Dedicated High-Priority Official Channel for Qatar News Agency (QNA)
+    if (domain.includes('qna.org.qa') || source.feedUrl.includes('qna.org.qa')) {
+      try {
+        const qnaApiUrl = 'https://www.qna.org.qa/Umbraco/api/NewsBulletin/GetNormalNewsBulletin';
+        const res = await httpClientService.fetchWithRetry(qnaApiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ Language: 'ar-QA', Page: 1, PageSize: 30 }),
+          timeoutMs: 10000,
+          retryAttempts: 2,
+        });
+
+        if (res.ok && res.body.includes('"data"')) {
+          if (source.feedUrl !== qnaApiUrl || source.type !== 'OFFICIAL_API') {
+            console.log(`[NewsIngestionEngine] Self-healing QNA source: Updated feedUrl to ${qnaApiUrl}`);
+            try {
+              await pool.query(
+                `UPDATE news_sources SET feed_url = $1, type = 'OFFICIAL_API', canonical_url = 'https://www.qna.org.qa' WHERE id = $2`,
+                [qnaApiUrl, source.id]
+              );
+            } catch {}
+          }
+          return { rawData: res.body, finalUrl: qnaApiUrl, responseTimeMs: res.responseTimeMs };
+        }
+      } catch (err: any) {
+        console.warn('[NewsIngestionEngine] QNA Umbraco POST API notice:', err?.message || err);
+      }
+
+      // Secondary QNA fallback: Live XML bulletin sitemap
+      try {
+        const qnaSitemapUrl = 'https://qna.org.qa/CuiNormalBulletin?Language=ar-qa&Page=1&PageSize=50';
+        const res = await httpClientService.fetchWithRetry(qnaSitemapUrl, { timeoutMs: 8000, retryAttempts: 1 });
+        if (res.ok && res.body.includes('<url>')) {
+          return { rawData: res.body, finalUrl: qnaSitemapUrl, responseTimeMs: res.responseTimeMs };
+        }
+      } catch {}
+    }
+
+    // Dedicated High-Priority Channel for Kuwait News Agency (KUNA)
+    if (domain.includes('kuna.net.kw') || source.feedUrl.includes('kuna.net.kw') || (source.nameArabic && source.nameArabic.includes('كونا'))) {
+      const kunaGNewsUrl = 'https://news.google.com/rss/search?q=site:kuna.net.kw&hl=ar&gl=KW&ceid=KW:ar';
+      try {
+        const res = await httpClientService.fetchWithRetry(kunaGNewsUrl, { timeoutMs: 8000, retryAttempts: 2 });
+        if (res.ok && res.body.includes('<item>')) {
+          if (source.feedUrl !== kunaGNewsUrl) {
+            console.log(`[NewsIngestionEngine] Self-healing KUNA feedUrl to verified live feed`);
+            try {
+              await pool.query(`UPDATE news_sources SET feed_url = $1, url = 'https://www.kuna.net.kw' WHERE id = $2`, [kunaGNewsUrl, source.id]);
+            } catch {}
+          }
+          return { rawData: res.body, finalUrl: kunaGNewsUrl, responseTimeMs: res.responseTimeMs };
+        }
+      } catch (err: any) {
+        console.warn('[NewsIngestionEngine] KUNA direct live feed notice:', err?.message || err);
+      }
+    }
+
+    // Dedicated High-Priority Channel for Al Qabas Kuwait
+    if (domain.includes('alqabas.com') || source.feedUrl.includes('alqabas.com') || (source.nameArabic && source.nameArabic.includes('القبس'))) {
+      const alqabasGNewsUrl = 'https://news.google.com/rss/search?q=site:alqabas.com&hl=ar&gl=KW&ceid=KW:ar';
+      try {
+        const res = await httpClientService.fetchWithRetry(alqabasGNewsUrl, { timeoutMs: 8000, retryAttempts: 2 });
+        if (res.ok && res.body.includes('<item>')) {
+          if (source.feedUrl !== alqabasGNewsUrl) {
+            console.log(`[NewsIngestionEngine] Self-healing Al Qabas feedUrl to verified live feed`);
+            try {
+              await pool.query(`UPDATE news_sources SET feed_url = $1, url = 'https://www.alqabas.com' WHERE id = $2`, [alqabasGNewsUrl, source.id]);
+            } catch {}
+          }
+          return { rawData: res.body, finalUrl: alqabasGNewsUrl, responseTimeMs: res.responseTimeMs };
+        }
+      } catch (err: any) {
+        console.warn('[NewsIngestionEngine] Al Qabas live feed notice:', err?.message || err);
+      }
+    }
+
+    // Dedicated High-Priority Channel for Khuyut News Platform
+    if (domain.includes('khuyut') || source.feedUrl.includes('khuyut') || (source.nameArabic && source.nameArabic.includes('خيوط'))) {
+      const khuyutGNewsUrl = 'https://news.google.com/rss/search?q=site:khuyut.net&hl=ar&gl=YE&ceid=YE:ar';
+      try {
+        const res = await httpClientService.fetchWithRetry(khuyutGNewsUrl, { timeoutMs: 8000, retryAttempts: 2 });
+        if (res.ok && res.body.includes('<item>')) {
+          if (source.feedUrl !== khuyutGNewsUrl || source.url !== 'https://www.khuyut.net') {
+            console.log(`[NewsIngestionEngine] Self-healing Khuyut feedUrl and url to khuyut.net verified live feed`);
+            try {
+              await pool.query(`UPDATE news_sources SET feed_url = $1, url = 'https://www.khuyut.net' WHERE id = $2`, [khuyutGNewsUrl, source.id]);
+            } catch {}
+          }
+          return { rawData: res.body, finalUrl: khuyutGNewsUrl, responseTimeMs: res.responseTimeMs };
+        }
+      } catch (err: any) {
+        console.warn('[NewsIngestionEngine] Khuyut live feed notice:', err?.message || err);
+      }
+    }
+
     const candidateUrls = [
       source.feedUrl,
       `${domain}/rss`,
@@ -194,7 +311,10 @@ export class NewsIngestionService {
 
     for (const candidateUrl of uniqueCandidates) {
       try {
+        const isQnaPost = candidateUrl.includes('GetNormalNewsBulletin');
         const res = await httpClientService.fetchWithRetry(candidateUrl, {
+          method: isQnaPost ? 'POST' : 'GET',
+          body: isQnaPost ? JSON.stringify({ Language: 'ar-QA', Page: 1, PageSize: 30 }) : undefined,
           timeoutMs: 8000,
           retryAttempts: 1,
         });
@@ -258,35 +378,31 @@ export class NewsIngestionService {
       }
     } catch {}
 
-    // Guaranteed Resilience Fallback: Generate professional articles for the source if all endpoints/scraping fail
-    const now = new Date();
-    const topics = [
-      `تطورات هامة وتغطية خاصة من ${source.nameArabic}`,
-      `تقرير ميداني وتحليل إخباري حول مستجدات الشأن المحلي في ${source.country}`,
-      `أبرز العناوين والتقارير الإخبارية الصادرة عن ${source.nameArabic}`,
-      `متابعة مستمرة لأحدث الأنباء والتقارير الاقتصادية والسياسية`,
-      `قراءة تحليلية في المشهد الحالي وتداعياته الإقليمية والدولية`
-    ];
+    // Universal Live Domain Aggregator Fallback (Google News RSS for verified domain)
+    try {
+      const cleanHost = domain.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
+      if (cleanHost && cleanHost.includes('.')) {
+        const aggregatorUrl = `https://news.google.com/rss/search?q=site:${cleanHost}&hl=ar`;
+        const res = await httpClientService.fetchWithRetry(aggregatorUrl, { timeoutMs: 8000, retryAttempts: 1 });
+        if (res.ok && res.body.includes('<item>')) {
+          console.log(`[NewsIngestionEngine] Fallback aggregator succeeded for ${source.nameArabic} (${cleanHost})`);
+          try {
+            await pool.query(`UPDATE news_sources SET feed_url = $1 WHERE id = $2`, [aggregatorUrl, source.id]);
+          } catch {}
+          return { rawData: res.body, finalUrl: aggregatorUrl, responseTimeMs: res.responseTimeMs };
+        }
+      }
+    } catch {}
 
-    const syntheticItems = topics.map((t, idx) => {
-      const pub = new Date(now.getTime() - idx * 15 * 60 * 1000).toUTCString();
-      return `<item>
-        <title><![CDATA[${t} (${source.nameArabic})]></title>
-        <link>${source.url}/article-${Date.now()}-${idx}</link>
-        <description><![CDATA[تنشر ${source.nameArabic} تغطية شاملة ومتابعة دقيقة لأبرز الأحداث والمستجدات على الساحة في ${source.country}، مع تسليط الضوء على الأبعاد المختلفة للقصص الإخبارية الراهنة.]]></description>
-        <pubDate>${pub}</pubDate>
-        <category>${source.category}</category>
-      </item>`;
-    }).join('\n');
-
-    const syntheticXml = `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title><![CDATA[${source.nameArabic}]]></title><link>${source.url}</link>${syntheticItems}</channel></rss>`;
-    return { rawData: syntheticXml, finalUrl: source.url, responseTimeMs: 120 };
+    // If all primary and alternative feed endpoints failed, throw error to record failure accurately without fabricating content
+    throw new Error(`FEED_FETCH_FAILED: Unable to fetch live feed content for ${source.nameArabic} (${source.feedUrl})`);
   }
 
-  public async fetchAndIngestSource(source: FeedSourceConfig): Promise<IngestionLog> {
+  public async fetchAndIngestSource(source: FeedSourceConfig, explicitRunId?: string): Promise<IngestionLog> {
+    const runId = explicitRunId || `ingest_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
     const startTime = Date.now();
     const startedAt = new Date().toISOString();
-    console.log(`[NewsIngestionEngine] Executing Pipeline for: ${source.nameArabic} (${source.feedUrl})`);
+    console.log(`[NewsIngestionEngine][${runId}] Executing Pipeline for: ${source.nameArabic} (${source.feedUrl})`);
 
     let articlesFetched = 0;
     let newArticlesCount = 0;
@@ -312,6 +428,7 @@ export class NewsIngestionService {
 
       // STAGE 3 to 10: PROCESSING & INSERTION
       let hasRecentArticle = false;
+      const recentCandidates = await duplicateDetectionEngine.loadRecentCandidates(72);
 
       for (const item of items) {
         let rawTitle = (item.title || '')
@@ -320,19 +437,86 @@ export class NewsIngestionService {
           .replace(/<[^>]+>/g, '')
           .trim();
 
+        // Strip common aggregator trailing source names (e.g., " - kuna.net.kw", " - جريدة القبس")
+        if (rawTitle.includes(' - ')) {
+          const parts = rawTitle.split(' - ');
+          if (parts.length > 1) {
+            const lastPart = parts[parts.length - 1].trim();
+            const cleanHost = (source.url || source.feedUrl || '')
+              .toLowerCase()
+              .replace(/^https?:\/\//, '')
+              .replace(/^www\./, '')
+              .split('/')[0];
+            if (
+              (cleanHost && lastPart.toLowerCase().includes(cleanHost)) ||
+              (source.nameArabic && lastPart.includes(source.nameArabic)) ||
+              (source.name && lastPart.toLowerCase().includes(source.name.toLowerCase())) ||
+              lastPart.includes('.com') ||
+              lastPart.includes('.net') ||
+              lastPart.includes('.kw') ||
+              lastPart.includes('كونا') ||
+              lastPart.includes('القبس') ||
+              lastPart.includes('خيوط') ||
+              lastPart.includes('الجزيرة') ||
+              lastPart.includes('العربية') ||
+              lastPart.includes('رويترز')
+            ) {
+              rawTitle = parts.slice(0, -1).join(' - ').trim();
+            }
+          }
+        }
+
         if (!rawTitle || rawTitle.length < 4) continue;
 
         const originalUrl = item.link || source.url;
         const canonicalUrl = getCanonicalUrl(originalUrl);
 
-        const slug =
-          rawTitle
-            .replace(/[\s\u0600-\u06FF]+/g, '-')
-            .replace(/[^\w-]/g, '')
-            .toLowerCase()
-            .slice(0, 60) +
-          '-' +
-          Math.abs(canonicalUrl.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)).toString(36);
+        // Multi-tier Duplicate Detection Engine (Exact URL + Exact Title + Jaccard / Cosine / Levenshtein NLP)
+        const dupCheck = await duplicateDetectionEngine.checkDuplicate({
+          title: rawTitle,
+          canonicalUrl,
+          originalUrl,
+          summary: item.summary,
+        }, recentCandidates);
+
+        if (dupCheck.isDuplicate) {
+          duplicatesCount++;
+          // If existing is partial and new has full content, upgrade existing article without duplicating
+          if (dupCheck.duplicateType === 'EXACT_URL' && dupCheck.matchedArticleId) {
+            const rawItemContent = (item.content || '').replace(/<!\[CDATA\[/gi, '').replace(/\]\]>/gi, '').trim();
+            const rawItemSummary = (item.summary || '').replace(/<!\[CDATA\[/gi, '').replace(/\]\]>/gi, '').trim();
+            const publishedDate = item.pubDate ? new Date(item.pubDate) : new Date();
+            const extracted = contentExtractorService.extractFromFeedItem(rawItemContent, rawItemSummary, canonicalUrl, {
+              coverImage: item.coverImage,
+              author: item.author,
+              publishedAt: publishedDate,
+            });
+
+            if (extracted.isFullContentAvailable) {
+              const plainText = (extracted.formattedBody || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+              await pool.query(
+                `UPDATE news_articles SET 
+                  content = $1, formatted_body = $1, content_html = $1, content_text = $2,
+                  is_full_content_available = TRUE, content_status = 'full', word_count = $3, paragraph_count = $4
+                 WHERE id = $5 AND is_full_content_available = FALSE`,
+                [extracted.formattedBody, plainText, extracted.wordCount, extracted.paragraphCount, dupCheck.matchedArticleId]
+              );
+            }
+          }
+          continue;
+        }
+
+        // Clean and build Arabic-compatible SEO slug
+        const cleanArabicSlug = rawTitle
+          .toLowerCase()
+          .replace(/[^\u0600-\u06FFa-zA-Z0-9\s]/g, '')
+          .replace(/\s+/g, '-')
+          .replace(/-+/g, '-')
+          .replace(/^-|-$/g, '')
+          .slice(0, 60);
+
+        const urlHash = Math.abs(canonicalUrl.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)).toString(36);
+        const slug = cleanArabicSlug ? `${cleanArabicSlug}-${urlHash}` : `news-${urlHash}`;
 
         const publishedDate = item.pubDate ? new Date(item.pubDate) : new Date();
         if (Date.now() - publishedDate.getTime() < 24 * 60 * 60 * 1000) {
@@ -348,8 +532,13 @@ export class NewsIngestionService {
           publishedAt: publishedDate,
         });
 
-        // If RSS feed had only short summary/description, attempt multi-stage full extraction from source URL if permitted & safe
-        if (!extracted.isFullContentAvailable && originalUrl && contentExtractorService.isUrlSafeForExtraction(originalUrl)) {
+        // If RSS feed had only short summary/description, attempt multi-stage full extraction from source URL if permitted & safe (skip redirect interstitials like Google News)
+        if (
+          !extracted.isFullContentAvailable &&
+          originalUrl &&
+          !originalUrl.includes('google.com') &&
+          contentExtractorService.isUrlSafeForExtraction(originalUrl)
+        ) {
           try {
             const webExtracted = await contentExtractorService.extractFromUrl(originalUrl, rawItemSummary || rawTitle);
             if (webExtracted.isFullContentAvailable) {
@@ -390,7 +579,15 @@ export class NewsIngestionService {
           wordCount: extracted.wordCount,
           paragraphCount: extracted.paragraphCount,
           isFullContentAvailable: extracted.isFullContentAvailable,
-          trustScore: source.trustScore || 90,
+          trustScore: calculateDeterministicTrustScore({
+            sourceReliability: source.trustScore,
+            isSourceVerified: source.enabled,
+            hasCanonicalUrl: !!canonicalUrl && canonicalUrl.startsWith('https://'),
+            isFullContentAvailable: extracted.isFullContentAvailable,
+            wordCount: extracted.wordCount,
+            hasAuthorAttribution: !!item.author || (!!extracted.authorName && extracted.authorName !== 'فريق التحرير'),
+            isPublicationConsistent: publishedDate instanceof Date && !isNaN(publishedDate.getTime()) && publishedDate.getTime() <= Date.now() + 3600000,
+          }).score,
           sentiment: 'Neutral',
           publishedAt: publishedDate,
           status: 'PUBLISHED',
@@ -475,6 +672,36 @@ export class NewsIngestionService {
                 publishedAt: articleDto.publishedAt.toISOString(),
               });
             } catch {}
+
+            // Auto-enqueue AI job into ai_jobs for background enrichment
+            try {
+              await pool.query(
+                `INSERT INTO ai_jobs (article_id, job_type, status, attempts, payload, created_at)
+                 VALUES ($1, 'GEMINI_ANALYSIS_ENTITIES', 'PENDING', 0, $2, CURRENT_TIMESTAMP)`,
+                [
+                  newArticleId,
+                  JSON.stringify({
+                    runId,
+                    title: rawTitle,
+                    content: fullContent.slice(0, 3000),
+                    sourceName: source.nameArabic || source.name,
+                    sourceReliability: source.trustScore || 85,
+                  }),
+                ]
+              );
+            } catch (jobErr) {
+              console.warn(`[NewsIngestionEngine][${runId}] Failed to enqueue AI job:`, jobErr);
+            }
+            recentCandidates.push({
+              id: newArticleId,
+              title: rawTitle,
+              normalizedTitle: normalizeArabicText(rawTitle),
+              canonicalUrl,
+              originalArticleUrl: originalUrl,
+              publishedAt: articleDto.publishedAt.toISOString(),
+              sourceId: source.id,
+              tokens: duplicateDetectionEngine.tokenize(rawTitle),
+            });
           } else {
             duplicatesCount++;
           }
@@ -557,6 +784,7 @@ export class NewsIngestionService {
     const completedAt = new Date().toISOString();
 
     const log: IngestionLog = {
+      runId,
       sourceId: source.id,
       sourceName: source.nameArabic,
       status: errorMessage ? (newArticlesCount > 0 ? 'PARTIAL' : 'FAILED') : 'SUCCESS',

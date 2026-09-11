@@ -29,92 +29,48 @@ import {
 } from 'lucide-react';
 
 export const DuplicateDetectionPanel: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'SIMULATION_100' | 'MANUAL_TEST' | 'STORED_CLUSTERS'>('SIMULATION_100');
+  const [activeTab, setActiveTab] = useState<'REAL_ANALYSIS' | 'MANUAL_TEST' | 'STORED_CLUSTERS'>('REAL_ANALYSIS');
 
-  // 100 Newspaper Simulation state
+  // Real batch deduplication analysis state
   const [isSimulating, setIsSimulating] = useState(false);
   const [simulationResult, setSimulationResult] = useState<BatchIngestionResult | null>(null);
   const [selectedReport, setSelectedReport] = useState<IngestionDeduplicationReport | null>(null);
 
   // Manual comparison state
-  const [titleA, setTitleA] = useState('السعودية تعلن إطلاق مبادرة الطاقة الخضراء الكبرى بالرياض');
-  const [contentA, setContentA] = useState('أعلنت وزارة الطاقة السعودية عن إطلاق أكبر مشروع للهيدروجين الأخضر والطاقة الشمسية باستثمارات تبلغ 50 مليار دولار.');
+  const [titleA, setTitleA] = useState('إعلان خطة التحول الرقمي وتوسيع التغطية الإخبارية');
+  const [contentA, setContentA] = useState('أعلنت المؤسسة عن إطلاق مشاريع التحول الرقمي الشامل وتوسيع نطاق التغطية الإخبارية في مختلف المحافظات.');
 
-  const [titleB, setTitleB] = useState('الرياض تطلق مشروعاً ضخماً للهيدروجين الأخضر بـ 50 مليار دولار');
-  const [contentB, setContentB] = useState('كشفت مصادر رسمية في الرياض عن بدء تنفيذ المبادرة الوطنية للهيدروجين الأخضر بمشاركة شركات عالمية.');
+  const [titleB, setTitleB] = useState('إطلاق مشروع التحول الرقمي وتوسيع التغطية الإخبارية الإقليمية');
+  const [contentB, setContentB] = useState('كشفت التقارير عن بدء تنفيذ مبادرات الرقمنة الإخبارية وتوسيع شبكة المراسلين في المحافظات.');
 
   const [comparisonResult, setComparisonResult] = useState<DeduplicationComparisonResult | null>(null);
 
   // Articles from repository
   const [articlesList, setArticlesList] = useState<NewsArticle[]>(articlesRepository.getAll());
 
-  // Run 100 Newspaper Simulation
-  const handleRun100NewspaperSimulation = async () => {
+  // Run Real Articles Deduplication Analysis
+  const handleRunRealDeduplicationAnalysis = async () => {
     setIsSimulating(true);
     setSimulationResult(null);
     setSelectedReport(null);
 
-    // Generate 100 newspaper articles about 3 distinct major breaking news topics
-    const newspaperSources = [
-      { id: 'src-spa', name: 'وكالة الأنباء السعودية (واس)', reliability: 98 },
-      { id: 'src-reuters', name: 'رويترز العربية', reliability: 95 },
-      { id: 'src-bloomberg', name: 'بلومبرغ الشرق', reliability: 94 },
-      { id: 'src-bbc', name: 'بي بي سي عربي', reliability: 92 },
-      { id: 'src-aljazeera', name: 'الجزيرة نت', reliability: 90 },
-      { id: 'src-alarabiya', name: 'العربية.نت', reliability: 91 },
-      { id: 'src-cnn', name: 'CNN بالعربية', reliability: 89 },
-      { id: 'src-skynews', name: 'سكاي نيوز عربية', reliability: 88 },
-      { id: 'src-wsj', name: 'وول ستريت جورنال', reliability: 93 },
-      { id: 'src-ft', name: 'فايننشال تايمز', reliability: 92 },
-    ];
+    const currentArticles = articlesRepository.getAll();
+    setArticlesList(currentArticles);
 
-    const batchItems: Array<{ title: string; text: string; sourceId: string; category?: string; country?: string }> = [];
-
-    // Story Cluster 1: Green Energy Initiative (40 newspapers publish this)
-    for (let i = 1; i <= 40; i++) {
-      const src = newspaperSources[i % newspaperSources.length];
-      const variations = [
-        'السعودية تعلن تأسيس أكبر مجمع للهيدروجين الأخضر بالرياض باستثمارات 50 مليار دولار',
-        'الرياض تشهد إطلاق المبادرة الوطنية للهيدروجين النظيف بمشاركة 20 شركة عالمية',
-        'تأسيس أضخم مشروع للهيدروجين الأخضر في الشرق الأوسط بالعاصمة السعودية',
-        'إطلاق مجمع الهيدروجين الأخضر السعودي بـ 50 مليار دولار لتحقيق الحياد الصفري',
-      ];
-      batchItems.push({
-        title: `${variations[i % variations.length]} (صحيفة ${i})`,
-        text: `أعلنت وزارة الطاقة اليوم بحضور كبار المسؤولين عن بدء المرحلة الأولى من مشروع الهيدروجين الأخضر بقدرة 20 جيجاوات. ${
-          i % 5 === 0 ? 'تحديث جديد: وقّعت 5 شركات ألمانية يابانية عقود الصيانة والتشغيل الفوري.' : ''
-        }`,
-        sourceId: src.id,
-        category: 'اقتصاد',
-        country: 'السعودية',
-      });
+    if (currentArticles.length === 0) {
+      setIsSimulating(false);
+      return;
     }
 
-    // Story Cluster 2: Global AI Summit (35 newspapers publish this)
-    for (let i = 1; i <= 35; i++) {
-      const src = newspaperSources[i % newspaperSources.length];
-      batchItems.push({
-        title: `انطلاق قمة الذكاء الاصطناعي العالمية بمشاركة 100 دولة ومؤسسة تقنية (المصدر ${i})`,
-        text: 'افتتحت اليوم أعمال قمة الذكاء الاصطناعي لمناقشة الحوكمة العالمية والأنظمة الذكية وسبل دعم الابتكار المالي والتكنولوجي.',
-        sourceId: src.id,
-        category: 'تكنولوجيا',
-        country: 'السعودية',
-      });
-    }
+    const batchItems = currentArticles.map((a) => ({
+      title: a.title,
+      text: a.summary || a.content || a.title,
+      sourceId: a.sources[0]?.id || 'src-default',
+      category: a.category,
+      country: a.country,
+    }));
 
-    // Story Cluster 3: Space Exploration Mission (25 newspapers publish this)
-    for (let i = 1; i <= 25; i++) {
-      const src = newspaperSources[i % newspaperSources.length];
-      batchItems.push({
-        title: `إطلاق مهمة الفضاء العربية الجديدة لدراسة التغير المناخي والطقس (الوسيلة ${i})`,
-        text: 'نجح أحدث قمر صناعي عربي في الوصول إلى مداره المخصص للبدء في نقل البيانات المناخية والصور الفضائية عالية الدقة.',
-        sourceId: src.id,
-        category: 'علوم',
-        country: 'الإمارات',
-      });
-    }
-
-    // Process all 100 newspapers through DuplicateDetectionEngine
+    // Process all real articles through DuplicateDetectionEngine
     const result = await duplicateDetectionEngine.processBatchArticles(batchItems);
     setSimulationResult(result);
     setArticlesList(articlesRepository.getAll());
@@ -204,12 +160,12 @@ export const DuplicateDetectionPanel: React.FC = () => {
 
         <div className="flex items-center gap-2">
           <Button
-            variant={activeTab === 'SIMULATION_100' ? 'primary' : 'outline'}
-            onClick={() => setActiveTab('SIMULATION_100')}
+            variant={activeTab === 'REAL_ANALYSIS' ? 'primary' : 'outline'}
+            onClick={() => setActiveTab('REAL_ANALYSIS')}
             className="text-xs gap-2"
           >
             <GitMerge className="w-4 h-4" />
-            محاكاة 100 صحيفة
+            تحليل التكرار الفعلي ({articlesList.length})
           </Button>
           <Button
             variant={activeTab === 'MANUAL_TEST' ? 'primary' : 'outline'}
@@ -230,35 +186,35 @@ export const DuplicateDetectionPanel: React.FC = () => {
         </div>
       </div>
 
-      {/* Tab 1: 100 Newspaper Simulation */}
-      {activeTab === 'SIMULATION_100' && (
+      {/* Tab 1: Real Articles Deduplication Analysis */}
+      {activeTab === 'REAL_ANALYSIS' && (
         <div className="space-y-6">
           <Card className="bg-slate-900 border-slate-800 text-slate-100 p-6 space-y-4">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4">
               <div>
                 <h3 className="text-lg font-bold text-white flex items-center gap-2">
                   <Sparkles className="w-5 h-5 text-amber-400" />
-                  محاكاة نشر 100 صحيفة لخبر واحد (100 Newspaper Simulation Test)
+                  فحص وتحليل تكرار الأخبار الفعلية (Real Duplicate Detection)
                 </h3>
                 <p className="text-xs text-slate-400 mt-1">
-                  يقوم الاختبار بتغذية النظام بـ 100 خبر من 10 وكالات أنباء عالمية، لتطبيق خوارزميات التصفية والدمج في الوقت الفعلي.
+                  يقوم المحرك بفحص المقالات الحقيقية المحفوظة في المستودع وتطبيق خوارزميات التصفية والدمج في الوقت الفعلي.
                 </p>
               </div>
 
               <Button
                 disabled={isSimulating}
-                onClick={handleRun100NewspaperSimulation}
+                onClick={handleRunRealDeduplicationAnalysis}
                 className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs px-6 py-2.5 rounded-xl shadow-lg gap-2"
               >
                 {isSimulating ? (
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                    جاري معالجة الـ 100 خبر ودمج التكرار...
+                    جاري معالجة الأخبار ودمج التكرار...
                   </>
                 ) : (
                   <>
                     <Zap className="w-4 h-4 text-amber-400" />
-                    تشغيل محاكاة الـ 100 صحيفة الآن
+                    تشغيل فحص التكرار للأخبار الحالية ({articlesList.length})
                   </>
                 )}
               </Button>
@@ -268,8 +224,8 @@ export const DuplicateDetectionPanel: React.FC = () => {
             {simulationResult && (
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 pt-2">
                 <div className="bg-slate-800/80 p-4 rounded-xl border border-slate-700">
-                  <span className="text-xs text-slate-400 block">إجمالي الأخبار المدخلة:</span>
-                  <strong className="text-2xl font-black text-white">{simulationResult.totalIngested} صحيفة</strong>
+                  <span className="text-xs text-slate-400 block">إجمالي الأخبار المفحوصة:</span>
+                  <strong className="text-2xl font-black text-white">{simulationResult.totalIngested} خبر</strong>
                 </div>
 
                 <div className="bg-emerald-950/60 p-4 rounded-xl border border-emerald-800/80">
@@ -351,7 +307,7 @@ export const DuplicateDetectionPanel: React.FC = () => {
                         <h4 className="font-bold text-white text-sm">تفاصيل تقرير المعالجة والدمج</h4>
                       </div>
                       <Badge variant="indigo">
-                        درجة موثوقية التجميع: {selectedReport.targetArticle.trustScore}%
+                        درجة موثوقية التجميع: {selectedReport.targetArticle.trustScore != null ? `${selectedReport.targetArticle.trustScore}%` : 'غير متوفر'}
                       </Badge>
                     </div>
 

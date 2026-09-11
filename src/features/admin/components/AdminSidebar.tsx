@@ -9,8 +9,6 @@ import {
   Share2,
   Search,
   DollarSign,
-  Users,
-  UserCheck,
   Shield,
   Sliders,
   Clock,
@@ -36,8 +34,6 @@ export type AdminTabId =
   | 'SEO'
   | 'MONETIZATION'
   | 'ANALYTICS'
-  | 'USERS'
-  | 'ROLES'
   | 'LOGS'
   | 'SETTINGS';
 
@@ -49,7 +45,7 @@ interface AdminSidebarProps {
     sources: number;
     aiJobs: number;
     socialJobs: number;
-    users: number;
+    users?: number;
   };
 }
 
@@ -93,12 +89,10 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
       ],
     },
     {
-      title: 'الأمان والمدراء والنظام',
+      title: 'أمان النظام والإعدادات',
       items: [
-        { id: 'USERS' as AdminTabId, label: 'المستخدمين وأفراد الفريق', icon: Users, count: counts.users },
-        { id: 'ROLES' as AdminTabId, label: 'الأدوار والصلاحيات (RBAC)', icon: UserCheck },
-        { id: 'LOGS' as AdminTabId, label: 'سجلات التدقيق والأمان', icon: Shield },
-        { id: 'SETTINGS' as AdminTabId, label: 'إعدادات النظام (اليمن)', icon: Sliders },
+        { id: 'LOGS' as AdminTabId, label: 'أمان المدير وسجلات التدقيق', icon: Shield },
+        { id: 'SETTINGS' as AdminTabId, label: 'إعدادات المنصة الأساسية', icon: Sliders },
       ],
     },
   ];

@@ -374,21 +374,22 @@ export interface SystemHealth {
 }
 
 export interface RedisCacheMetrics {
-  totalKeys: number;
-  memoryUsedMB: number;
-  hitRatePercent: number;
-  evictionPolicy: 'allkeys-lru' | 'volatile-lru' | 'noeviction';
-  clusterNodes: number;
-  queriesPerSecond: number;
+  status: 'REAL' | 'NOT_CONFIGURED' | 'UNAVAILABLE' | 'ERROR';
+  totalKeys: number | null;
+  memoryUsedMB: number | null;
+  hitRatePercent: number | null;
+  evictionPolicy: 'allkeys-lru' | 'volatile-lru' | 'noeviction' | 'not_configured';
+  clusterNodes: number | null;
+  queriesPerSecond: number | null;
 }
 
 export interface CDNEdgeNode {
   city: string;
   country: string;
-  latencyMs: number;
-  cacheHitPercent: number;
+  latencyMs: number | null;
+  cacheHitPercent: number | null;
   http3Enabled: boolean;
-  status: 'Active' | 'Optimized' | 'Bypassed';
+  status: 'Active' | 'Optimized' | 'Bypassed' | 'NOT_CONFIGURED' | 'UNAVAILABLE';
 }
 
 export interface ImageOptimizationConfig {
@@ -411,11 +412,12 @@ export interface PWAServiceWorkerConfig {
 }
 
 export interface DatabaseIndexOptimizerConfig {
-  totalPartitionedRecords: number; // e.g. 10,250,000
-  activeCompositeIndexes: number;
-  avgQueryExecutionMs: number;
+  status: 'REAL' | 'NOT_CONFIGURED' | 'UNAVAILABLE' | 'ERROR';
+  totalPartitionedRecords: number | null;
+  activeCompositeIndexes: number | null;
+  avgQueryExecutionMs: number | null;
   cursorPaginationEnabled: boolean;
-  readReplicasCount: number;
-  pgBouncerPoolSize: number;
+  readReplicasCount: number | null;
+  pgBouncerPoolSize: number | null;
 }
 

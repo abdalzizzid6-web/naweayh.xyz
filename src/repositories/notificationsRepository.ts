@@ -136,18 +136,18 @@ const INITIAL_CAMPAIGNS: PushNotificationCampaign[] = [
 
 const INITIAL_PROVIDER_CONFIG: NotificationProviderConfig = {
   fcm: {
-    enabled: true,
-    serverKeyConfigured: true,
-    projectId: 'naw3iya-news-prod-fcm',
-    activeTokensCount: 3420000,
-    status: 'Connected',
+    enabled: false,
+    serverKeyConfigured: false,
+    projectId: '',
+    activeTokensCount: 0,
+    status: 'Disconnected',
   },
   oneSignal: {
-    enabled: true,
-    appIdConfigured: true,
-    appId: 'onesignal-app-naw3iya-773291',
-    activePlayersCount: 2150000,
-    status: 'Connected',
+    enabled: false,
+    appIdConfigured: false,
+    appId: '',
+    activePlayersCount: 0,
+    status: 'Disconnected',
   },
 };
 

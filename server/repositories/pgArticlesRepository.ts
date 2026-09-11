@@ -8,6 +8,61 @@ export interface CursorPaginatedArticles {
 }
 
 export class PgArticlesRepository {
+  public async getFilteredArticles(params: {
+    category?: string;
+    search?: string;
+    country?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ data: any[]; total: number }> {
+    try {
+      const conditions: string[] = [];
+      const values: any[] = [];
+      let idx = 1;
+
+      if (params.category && params.category !== 'الكل') {
+        conditions.push(`a.category = $${idx}`);
+        values.push(params.category);
+        idx++;
+      }
+      if (params.country && params.country !== 'جميع الدول') {
+        conditions.push(`s.country = $${idx}`);
+        values.push(params.country);
+        idx++;
+      }
+      if (params.search) {
+        conditions.push(`(a.title ILIKE $${idx} OR a.summary ILIKE $${idx})`);
+        values.push(`%${params.search}%`);
+        idx++;
+      }
+
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+      const countRes = await pool.query(
+        `SELECT COUNT(*) as count FROM news_articles a LEFT JOIN news_sources s ON a.source_id = s.id ${whereClause}`,
+        values
+      );
+      const total = parseInt(countRes.rows[0]?.count || '0', 10);
+
+      const limit = params.limit || 20;
+      const offset = params.offset || 0;
+      values.push(limit, offset);
+
+      const query = `
+        SELECT a.*, s.name as "sourceName", s.name_arabic as "sourceNameArabic", s.logo as "sourceLogo", s.country as "sourceCountry"
+        FROM news_articles a
+        LEFT JOIN news_sources s ON a.source_id = s.id
+        ${whereClause}
+        ORDER BY a.published_at DESC
+        LIMIT $${idx} OFFSET $${idx + 1}
+      `;
+      const res = await pool.query(query, values);
+      return { data: res.rows, total };
+    } catch (err) {
+      console.warn('[pgArticlesRepository.getFilteredArticles error]:', err);
+      return { data: [], total: 0 };
+    }
+  }
+
   public async getLatestArticles(limit: number = 20, offset: number = 0): Promise<any[]> {
     const res = await pool.query(
       `SELECT a.*, s.name as "sourceName", s.name_arabic as "sourceNameArabic", s.logo as "sourceLogo", s.country as "sourceCountry"
@@ -33,6 +88,351 @@ export class PgArticlesRepository {
       [slugOrId]
     );
     return res.rows[0] || null;
+  }
+
+  /**
+   * Increment article view count in PostgreSQL with rate-limiting / deduplication window.
+   */
+  public async incrementView(
+    articleId: string | number,
+    viewerHash?: string
+  ): Promise<{ viewsCount: number; deduplicated: boolean }> {
+    const isNum = !isNaN(Number(articleId));
+    const findSql = isNum
+      ? `SELECT id, views_count FROM news_articles WHERE id = $1`
+      : `SELECT id, views_count FROM news_articles WHERE slug = $1 OR id::text = $1`;
+    const findRes = await pool.query(findSql, [isNum ? Number(articleId) : articleId]);
+    if (findRes.rows.length === 0) {
+      return { viewsCount: 0, deduplicated: false };
+    }
+    const realId = findRes.rows[0].id;
+    const currentViews = parseInt(findRes.rows[0].views_count || '0', 10);
+
+    if (viewerHash) {
+      try {
+        const dedupRes = await pool.query(
+          `SELECT 1 FROM article_views_log 
+           WHERE article_id = $1 AND viewer_hash = $2 AND viewed_at >= NOW() - INTERVAL '30 minutes' 
+           LIMIT 1`,
+          [realId, viewerHash]
+        );
+        if (dedupRes.rows.length > 0) {
+          return { viewsCount: currentViews, deduplicated: true };
+        }
+        await pool.query(
+          `INSERT INTO article_views_log (article_id, viewer_hash) VALUES ($1, $2)`,
+          [realId, viewerHash]
+        );
+      } catch (logErr) {
+        console.warn('[ArticleViewsLog] Non-fatal log notice:', logErr);
+      }
+    }
+
+    const updateRes = await pool.query(
+      `UPDATE news_articles SET views_count = views_count + 1 WHERE id = $1 RETURNING views_count`,
+      [realId]
+    );
+    return {
+      viewsCount: parseInt(updateRes.rows[0]?.views_count || String(currentViews + 1), 10),
+      deduplicated: false,
+    };
+  }
+
+  /**
+   * Increment article share count in PostgreSQL
+   */
+  public async incrementShare(articleId: string | number): Promise<number> {
+    const isNum = !isNaN(Number(articleId));
+    const findSql = isNum
+      ? `SELECT id FROM news_articles WHERE id = $1`
+      : `SELECT id FROM news_articles WHERE slug = $1 OR id::text = $1`;
+    const findRes = await pool.query(findSql, [isNum ? Number(articleId) : articleId]);
+    if (findRes.rows.length === 0) return 0;
+    const realId = findRes.rows[0].id;
+
+    const res = await pool.query(
+      `UPDATE news_articles SET shares_count = shares_count + 1 WHERE id = $1 RETURNING shares_count`,
+      [realId]
+    );
+    return parseInt(res.rows[0]?.shares_count || '0', 10);
+  }
+
+  /**
+   * Save / Bookmark article in PostgreSQL
+   */
+  public async saveArticle(
+    articleId: string | number,
+    userId?: number | string | null,
+    deviceId?: string | null
+  ): Promise<{ saved: boolean; savesCount: number }> {
+    const isNum = !isNaN(Number(articleId));
+    const findSql = isNum
+      ? `SELECT id FROM news_articles WHERE id = $1`
+      : `SELECT id FROM news_articles WHERE slug = $1 OR id::text = $1`;
+    const findRes = await pool.query(findSql, [isNum ? Number(articleId) : articleId]);
+    if (findRes.rows.length === 0) return { saved: false, savesCount: 0 };
+    const realId = findRes.rows[0].id;
+
+    let numericUserId: number | null = null;
+    let finalDeviceId: string | null = deviceId || null;
+
+    if (typeof userId === 'number') {
+      numericUserId = userId;
+    } else if (typeof userId === 'string') {
+      if (!isNaN(Number(userId))) {
+        numericUserId = Number(userId);
+      } else {
+        finalDeviceId = finalDeviceId || userId;
+      }
+    }
+
+    if (numericUserId) {
+      await pool.query(
+        `INSERT INTO user_saved_articles (user_id, article_id) 
+         VALUES ($1, $2) 
+         ON CONFLICT (user_id, article_id) WHERE user_id IS NOT NULL DO NOTHING`,
+        [numericUserId, realId]
+      );
+    } else if (finalDeviceId) {
+      await pool.query(
+        `INSERT INTO user_saved_articles (device_id, article_id) 
+         VALUES ($1, $2) 
+         ON CONFLICT (device_id, article_id) WHERE device_id IS NOT NULL DO NOTHING`,
+        [finalDeviceId, realId]
+      );
+    }
+
+    const countRes = await pool.query(
+      `SELECT COUNT(*) as count FROM user_saved_articles WHERE article_id = $1`,
+      [realId]
+    );
+    const savesCount = Math.max(1, parseInt(countRes.rows[0]?.count || '1', 10));
+
+    await pool.query(
+      `UPDATE news_articles SET saves_count = $1 WHERE id = $2`,
+      [savesCount, realId]
+    );
+
+    return { saved: true, savesCount };
+  }
+
+  /**
+   * Unsave / Remove Bookmark in PostgreSQL
+   */
+  public async unsaveArticle(
+    articleId: string | number,
+    userId?: number | string | null,
+    deviceId?: string | null
+  ): Promise<{ saved: boolean; savesCount: number }> {
+    const isNum = !isNaN(Number(articleId));
+    const findSql = isNum
+      ? `SELECT id FROM news_articles WHERE id = $1`
+      : `SELECT id FROM news_articles WHERE slug = $1 OR id::text = $1`;
+    const findRes = await pool.query(findSql, [isNum ? Number(articleId) : articleId]);
+    if (findRes.rows.length === 0) return { saved: false, savesCount: 0 };
+    const realId = findRes.rows[0].id;
+
+    let numericUserId: number | null = null;
+    let finalDeviceId: string | null = deviceId || null;
+
+    if (typeof userId === 'number') {
+      numericUserId = userId;
+    } else if (typeof userId === 'string') {
+      if (!isNaN(Number(userId))) {
+        numericUserId = Number(userId);
+      } else {
+        finalDeviceId = finalDeviceId || userId;
+      }
+    }
+
+    if (numericUserId) {
+      await pool.query(
+        `DELETE FROM user_saved_articles WHERE user_id = $1 AND article_id = $2`,
+        [numericUserId, realId]
+      );
+    } else if (finalDeviceId) {
+      await pool.query(
+        `DELETE FROM user_saved_articles WHERE device_id = $1 AND article_id = $2`,
+        [finalDeviceId, realId]
+      );
+    }
+
+    const countRes = await pool.query(
+      `SELECT COUNT(*) as count FROM user_saved_articles WHERE article_id = $1`,
+      [realId]
+    );
+    const savesCount = parseInt(countRes.rows[0]?.count || '0', 10);
+
+    await pool.query(
+      `UPDATE news_articles SET saves_count = $1 WHERE id = $2`,
+      [savesCount, realId]
+    );
+
+    return { saved: false, savesCount };
+  }
+
+  /**
+   * Check if article is saved by user or device
+   */
+  public async isArticleSaved(
+    articleId: string | number,
+    userId?: number | string | null,
+    deviceId?: string | null
+  ): Promise<boolean> {
+    const isNum = !isNaN(Number(articleId));
+    const findSql = isNum
+      ? `SELECT id FROM news_articles WHERE id = $1`
+      : `SELECT id FROM news_articles WHERE slug = $1 OR id::text = $1`;
+    const findRes = await pool.query(findSql, [isNum ? Number(articleId) : articleId]);
+    if (findRes.rows.length === 0) return false;
+    const realId = findRes.rows[0].id;
+
+    let numericUserId: number | null = null;
+    let finalDeviceId: string | null = deviceId || null;
+
+    if (typeof userId === 'number') {
+      numericUserId = userId;
+    } else if (typeof userId === 'string') {
+      if (!isNaN(Number(userId))) {
+        numericUserId = Number(userId);
+      } else {
+        finalDeviceId = finalDeviceId || userId;
+      }
+    }
+
+    if (numericUserId) {
+      const res = await pool.query(
+        `SELECT 1 FROM user_saved_articles WHERE user_id = $1 AND article_id = $2 LIMIT 1`,
+        [numericUserId, realId]
+      );
+      return res.rows.length > 0;
+    } else if (finalDeviceId) {
+      const res = await pool.query(
+        `SELECT 1 FROM user_saved_articles WHERE device_id = $1 AND article_id = $2 LIMIT 1`,
+        [finalDeviceId, realId]
+      );
+      return res.rows.length > 0;
+    }
+    return false;
+  }
+
+  /**
+   * Get saved articles from PostgreSQL
+   */
+  public async getSavedArticles(params: {
+    userId?: number | null;
+    deviceId?: string | null;
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<any[]> {
+    const limit = Math.min(100, Math.max(1, params.limit || 50));
+    const offset = Math.max(0, params.offset || 0);
+
+    let sql = `
+      SELECT a.*, 
+             COALESCE(s.name_arabic, s.name) as "sourceName", 
+             s.logo as "sourceLogo", 
+             COALESCE(s.feed_url, s.url) as "sourceUrl", 
+             s.country as "sourceCountry",
+             s.trust_score as "sourceTrust",
+             usa.created_at as "savedAt",
+             TRUE as "isBookmarked"
+      FROM user_saved_articles usa
+      JOIN news_articles a ON usa.article_id = a.id
+      LEFT JOIN news_sources s ON a.source_id = s.id
+      WHERE 1=1
+    `;
+    const values: any[] = [];
+
+    if (params.userId) {
+      values.push(params.userId);
+      sql += ` AND usa.user_id = $${values.length}`;
+    } else if (params.deviceId) {
+      values.push(params.deviceId);
+      sql += ` AND usa.device_id = $${values.length}`;
+    }
+
+    sql += ` ORDER BY usa.created_at DESC LIMIT $${values.length + 1} OFFSET $${values.length + 2}`;
+    values.push(limit, offset);
+
+    const res = await pool.query(sql, values);
+    return res.rows;
+  }
+
+  /**
+   * Real Deterministic Trending News from PostgreSQL
+   * Velocity formula: Score = (Views * 1.5 + Shares * 3 + Saves * 2) / (HoursOld + 2)^1.2
+   */
+  public async getTrendingArticles(limit: number = 10): Promise<any[]> {
+    const sql = `
+      SELECT a.*, 
+             COALESCE(s.name_arabic, s.name) as "sourceName", 
+             s.logo as "sourceLogo", 
+             COALESCE(s.feed_url, s.url) as "sourceUrl", 
+             s.country as "sourceCountry",
+             s.trust_score as "sourceTrust",
+             ((COALESCE(a.views_count, 0) * 1.5) + (COALESCE(a.shares_count, 0) * 3.0) + (COALESCE(a.saves_count, 0) * 2.0)) / 
+             POWER(GREATEST(0.5, EXTRACT(EPOCH FROM (NOW() - a.published_at)) / 3600.0) + 2.0, 1.2) as "trendingScore"
+      FROM news_articles a
+      LEFT JOIN news_sources s ON a.source_id = s.id
+      ORDER BY "trendingScore" DESC, a.published_at DESC
+      LIMIT $1
+    `;
+    const res = await pool.query(sql, [limit]);
+    return res.rows;
+  }
+
+  /**
+   * Real Most-Read News from PostgreSQL
+   */
+  public async getMostReadArticles(limit: number = 10): Promise<any[]> {
+    const sql = `
+      SELECT a.*, 
+             COALESCE(s.name_arabic, s.name) as "sourceName", 
+             s.logo as "sourceLogo", 
+             COALESCE(s.feed_url, s.url) as "sourceUrl", 
+             s.country as "sourceCountry",
+             s.trust_score as "sourceTrust"
+      FROM news_articles a
+      LEFT JOIN news_sources s ON a.source_id = s.id
+      ORDER BY a.views_count DESC, a.published_at DESC
+      LIMIT $1
+    `;
+    const res = await pool.query(sql, [limit]);
+    return res.rows;
+  }
+
+  /**
+   * Real Breaking News from PostgreSQL
+   */
+  public async getBreakingArticles(limit: number = 10): Promise<any[]> {
+    const sql = `
+      SELECT a.*, 
+             COALESCE(s.name_arabic, s.name) as "sourceName", 
+             s.logo as "sourceLogo", 
+             COALESCE(s.feed_url, s.url) as "sourceUrl", 
+             s.country as "sourceCountry",
+             s.trust_score as "sourceTrust"
+      FROM news_articles a
+      LEFT JOIN news_sources s ON a.source_id = s.id
+      WHERE a.is_breaking = TRUE OR a.published_at >= NOW() - INTERVAL '6 hours'
+      ORDER BY a.is_breaking DESC, a.published_at DESC
+      LIMIT $1
+    `;
+    const res = await pool.query(sql, [limit]);
+    return res.rows;
+  }
+
+  /**
+   * Delete article from PostgreSQL
+   */
+  public async deleteArticle(id: string | number): Promise<boolean> {
+    const isNum = !isNaN(Number(id));
+    const sql = isNum
+      ? `DELETE FROM news_articles WHERE id = $1 RETURNING id`
+      : `DELETE FROM news_articles WHERE slug = $1 OR id::text = $1 RETURNING id`;
+    const res = await pool.query(sql, [isNum ? Number(id) : id]);
+    return (res.rowCount || 0) > 0;
   }
 
   /**

@@ -136,8 +136,6 @@ export class SocialPostsRepository extends BaseRepository<SocialPostItem> {
       republishCount: post.republishCount + 1,
       engagement: {
         ...post.engagement,
-        views: post.engagement.views + Math.floor(Math.random() * 500) + 100,
-        shares: post.engagement.shares + Math.floor(Math.random() * 20) + 5,
       },
     });
     return updated;

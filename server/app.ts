@@ -1,6 +1,6 @@
 import express, { Express } from 'express';
 import { newsApiRouter, mapDbRowToArticle } from './api/newsRouter';
-import { authRouter } from './api/authRouter';
+import { authRouter, requireAdminAuth } from './api/authRouter';
 import { storiesApiRouter } from './api/storiesRouter';
 import { aiPipelineService } from './services/AIPipelineService';
 import { seoEngineService } from '../src/seo-engine/SEOEngineService';
@@ -8,6 +8,7 @@ import { articlesRepository } from '../src/repositories/articlesRepository';
 import { sourcesRepository } from '../src/repositories/sourcesRepository';
 import { pool } from './db/connection';
 import { newsSchedulerWorker } from './workers/NewsSchedulerWorker';
+import { telemetryService } from './services/TelemetryService';
 
 export async function syncDatabaseArticlesToRepository(): Promise<number> {
   try {
@@ -71,8 +72,9 @@ export function createExpressApp(): Express {
     const isWww = host.startsWith('www.');
     const proto = req.headers['x-forwarded-proto'] || req.protocol;
 
-    // 1. Redirect www and non-https traffic to clean https://naweayh.xyz
-    if (isWww || (proto === 'http' && (host.includes('naweayh.xyz') || host.includes('localhost') === false))) {
+    // 1. Redirect www and non-https traffic to clean https://naweayh.xyz (skip localhost / 127.0.0.1 in dev)
+    const isLocalhost = host.includes('localhost') || host.includes('127.0.0.1');
+    if (!isLocalhost && (isWww || (proto === 'http' && host.includes('naweayh.xyz')))) {
       const cleanHost = host.replace(/^www\./, '');
       return res.redirect(301, `https://${cleanHost || 'naweayh.xyz'}${req.originalUrl}`);
     }
@@ -104,17 +106,74 @@ export function createExpressApp(): Express {
     next();
   });
 
-  // Basic Middleware
+  // Basic Middleware & Live Request Telemetry
+  app.use(telemetryService.middleware());
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+  // Live Forensic Health & Metrics Telemetry API
+  app.get('/api/v1/monitoring/health-metrics', async (_req, res) => {
+    try {
+      const metrics = await telemetryService.getLiveMetrics();
+      res.json({ success: true, data: metrics });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Real AI Jobs Endpoint (Admin Protected)
+  app.get('/api/v1/admin/ai-jobs', requireAdminAuth, async (_req, res) => {
+    try {
+      const result = await pool.query(
+        `SELECT j.id, j.article_id, j.job_type, j.status, j.attempts, j.max_attempts, 
+                j.last_error, j.payload, j.result, j.created_at, j.started_at, j.completed_at,
+                COALESCE(a.title, j.payload->>'title', 'مهمة بدون عنوان') as article_title
+         FROM ai_jobs j
+         LEFT JOIN news_articles a ON j.article_id = a.id
+         ORDER BY j.created_at DESC
+         LIMIT 50`
+      );
+      res.json({ success: true, data: result.rows });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Retry Real AI Job Endpoint (Admin Protected)
+  app.post('/api/v1/admin/ai-jobs/:id/retry', requireAdminAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const jobRes = await pool.query('SELECT * FROM ai_jobs WHERE id = $1', [id]);
+      if (jobRes.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'المهمة غير موجودة' });
+      }
+      const job = jobRes.rows[0];
+      const payload = job.payload || {};
+      await pool.query(
+        `UPDATE ai_jobs SET status = 'RUNNING', attempts = attempts + 1, last_error = NULL WHERE id = $1`,
+        [id]
+      );
+      // Process in background
+      aiPipelineService.processArticleWithAI(
+        payload.title || '',
+        payload.content || '',
+        payload.sourceName || 'أخبار نوعية',
+        job.article_id
+      ).catch(err => console.warn('[Retry AI Job] Failed:', err.message));
+
+      res.json({ success: true, message: 'تمت إعادة جدولة المهمة بنجاح' });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
 
   // API Routes
   app.use('/api/v1/auth', authRouter);
   app.use('/api', newsApiRouter);
   app.use('/api', storiesApiRouter);
 
-  // AI Pipeline Processing Endpoint
-  app.post('/api/ai/process', async (req, res) => {
+  // AI Pipeline Processing Endpoint (Admin Protected)
+  app.post('/api/ai/process', requireAdminAuth, async (req, res) => {
     try {
       const { title, content, sourceName } = req.body;
       const result = await aiPipelineService.processArticleWithAI(

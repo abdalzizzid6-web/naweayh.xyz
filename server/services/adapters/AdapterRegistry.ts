@@ -40,9 +40,24 @@ export class AdapterRegistry {
     sourceType: string,
     url: string
   ): { items: RawFeedItem[]; adapterUsed: string } {
-    const adapter = this.selectAdapter(sourceType, url, rawData);
-    const items = adapter.parseItems(rawData, url);
-    return { items, adapterUsed: adapter.name };
+    const primaryAdapter = this.selectAdapter(sourceType, url, rawData);
+    const items = primaryAdapter.parseItems(rawData, url);
+    if (items.length > 0) {
+      return { items, adapterUsed: primaryAdapter.name };
+    }
+
+    // Fallback: test other registered adapters if primary produced 0 items
+    for (const altAdapter of this.adapters) {
+      if (altAdapter === primaryAdapter) continue;
+      try {
+        const altItems = altAdapter.parseItems(rawData, url);
+        if (altItems.length > 0) {
+          return { items: altItems, adapterUsed: altAdapter.name };
+        }
+      } catch {}
+    }
+
+    return { items: [], adapterUsed: primaryAdapter.name };
   }
 }
 

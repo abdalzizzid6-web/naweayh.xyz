@@ -59,8 +59,9 @@ export interface SEOMetaOutput {
 
 export class SEOEngineService {
   public readonly siteDomain = 'https://naweayh.xyz';
-  public readonly siteName = 'OmniNews';
-  public readonly siteTagline = 'المنصة الإخبارية الذكية الأولى — الأخبار كما تستحق أن تُقرأ';
+  public readonly siteName = 'Naw3iya News';
+  public readonly siteNameArabic = 'أخبار نوعية';
+  public readonly siteTagline = 'المنصة الإخبارية الذكية الأولى — تغطية نوعية وموثوقة';
 
   /**
    * 1. Dynamic Meta Tags Generator (Articles, Categories, Sources, Search, 404, Homepage)
@@ -68,22 +69,22 @@ export class SEOEngineService {
   public generateMetaTags(article?: NewsArticle): SEOMetaOutput {
     if (!article) {
       return {
-        title: `${this.siteName} | ${this.siteTagline}`,
-        description: 'OmniNews - المنصة الإخبارية الذكية الأولى. تغطية إخبارية فورية ومباشرة مدعومة بالذكاء الاصطناعي، تحليلات موثوقة لأخبار اليمن، العالم العربي والشؤون الدولية.',
-        keywords: 'OmniNews, أخبار نوعية, أخبار, اليمن, السعودية, الشرق الأوسط, عاجل, سياسة, اقتصاد, تقنية, ذكاء اصطناعي, رياضة',
+        title: `${this.siteNameArabic} (${this.siteName}) | ${this.siteTagline}`,
+        description: 'منصة أخبار نوعية (Naw3iya News) - المنصة الإخبارية العربية الذكية الأولى. تغطية إخبارية فورية ومباشرة مدعومة بالذكاء الاصطناعي، تحليلات موثوقة لأخبار اليمن، العالم العربي والشؤون الدولية على naweayh.xyz.',
+        keywords: 'Naw3iya News, أخبار نوعية, أخبار, اليمن, السعودية, الشرق الأوسط, عاجل, سياسة, اقتصاد, تقنية, ذكاء اصطناعي, رياضة',
         canonicalUrl: buildAbsoluteUrl('/'),
         robots: 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1',
         ogType: 'website',
-        ogTitle: `${this.siteName} | ${this.siteTagline}`,
-        ogDescription: 'OmniNews - المنصة الإخبارية الذكية الأولى. تغطية إخبارية فورية ومباشرة مدعومة بالذكاء الاصطناعي وتحليلات موثوقة.',
+        ogTitle: `${this.siteNameArabic} (${this.siteName}) | ${this.siteTagline}`,
+        ogDescription: 'منصة أخبار نوعية (Naw3iya News) - تغطية إخبارية فورية ومباشرة مدعومة بالذكاء الاصطناعي وتحليلات موثوقة.',
         ogImage: buildAbsoluteUrl('/og-default.jpg'),
         ogUrl: buildAbsoluteUrl('/'),
-        ogSiteName: this.siteName,
+        ogSiteName: `${this.siteNameArabic} - ${this.siteName}`,
         ogLocale: 'ar_SA',
         twitterCard: 'summary_large_image',
-        twitterSite: '@OmniNewsAr',
-        twitterTitle: `${this.siteName} | ${this.siteTagline}`,
-        twitterDescription: 'OmniNews - المنصة الإخبارية الذكية الأولى. تغطية إخبارية فورية ومباشرة.',
+        twitterSite: '@NaweayhNews',
+        twitterTitle: `${this.siteNameArabic} (${this.siteName}) | ${this.siteTagline}`,
+        twitterDescription: 'أخبار نوعية (Naw3iya News) - المنصة الإخبارية الذكية الأولى. تغطية إخبارية فورية ومباشرة.',
         twitterImage: buildAbsoluteUrl('/og-default.jpg'),
       };
     }
@@ -96,8 +97,8 @@ export class SEOEngineService {
     const description = cleanSummary.length > 160 ? `${cleanSummary.substring(0, 157)}...` : cleanSummary;
 
     // Clean Title without duplicate brand stuffing
-    const cleanTitle = article.title.replace(/\s*\|\s*OmniNews/gi, '').trim();
-    const title = `${cleanTitle} | ${this.siteName}`;
+    const cleanTitle = article.title.replace(/\s*\|\s*(OmniNews|Naw3iya News|أخبار نوعية)/gi, '').trim();
+    const title = `${cleanTitle} | ${this.siteNameArabic}`;
 
     const keywords = [
       this.siteName,

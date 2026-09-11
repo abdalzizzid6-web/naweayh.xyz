@@ -61,6 +61,11 @@ export const AIAggregatorPanel: React.FC = () => {
   const [aiResult, setAiResult] = useState<AIPipelineResult | null>(null);
 
   useEffect(() => {
+    // Fetch latest sources from API
+    newsService.fetchSources().then((res) => {
+      if (res && res.length > 0) setSources(res);
+    });
+
     // Subscribe to queue updates
     const unsubscribeQueue = aggregationQueue.subscribe(() => {
       setQueueMetrics(aggregationQueue.getMetrics());

@@ -1,9 +1,6 @@
 import { adapterRegistry } from './adapters/AdapterRegistry';
 import { httpClientService } from './HttpClientService';
 
-// Prevent regional intermediate SSL certificate errors from blocking feed discovery
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-
 export interface DiscoveredFeed {
   feedUrl: string;
   title: string;
@@ -55,22 +52,27 @@ export class SourceDiscoveryEngine {
 
     // 2. If it's a website landing page, fetch HTML and parse <link rel="alternate"> tags
     try {
-      const response = await fetch(normalizedUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        },
-        signal: AbortSignal.timeout(8000),
+      let baseDomain = '';
+      try {
+        baseDomain = new URL(normalizedUrl).origin;
+      } catch {
+        baseDomain = normalizedUrl;
+      }
+
+      const candidateUrls = new Set<string>();
+
+      // Fetch homepage HTML with resilient HTTP client
+      const res = await httpClientService.fetchWithRetry(normalizedUrl, {
+        timeoutMs: 6000,
+        retryAttempts: 1,
       });
 
-      if (response.ok) {
-        const html = await response.text();
-        const baseDomain = new URL(normalizedUrl).origin;
+      if (res.ok && res.body) {
+        const html = res.body;
 
         // Regex to extract <link rel="alternate" type="application/rss+xml" href="...">
         const feedLinkRegex = /<link[^>]+rel=["']alternate["'][^>]+type=["'](application\/(rss\+xml|atom\+xml|json))["'][^>]+href=["']([^"']+)["']/gi;
         let match;
-        const candidateUrls = new Set<string>();
 
         while ((match = feedLinkRegex.exec(html)) !== null) {
           let href = match[3];
@@ -81,30 +83,27 @@ export class SourceDiscoveryEngine {
           }
           candidateUrls.add(href);
         }
+      }
 
-        // Also test common fallback RSS paths
-        const commonPaths = ['/rss', '/feed', '/rss.xml', '/atom.xml', '/feed.xml', '/index.xml', '/news/rss'];
+      // Also test common fallback RSS paths even if root HTML was blocked or had no alternate tags
+      if (baseDomain.startsWith('http')) {
+        const commonPaths = ['/rss', '/feed', '/rss.xml', '/atom.xml', '/feed.xml', '/index.xml', '/news/rss', '/rss/all.xml'];
         for (const path of commonPaths) {
           candidateUrls.add(baseDomain + path);
         }
+      }
 
-        // Test candidate URLs
-        for (const candidateUrl of candidateUrls) {
-          if (discoveredFeeds.some((f) => f.feedUrl === candidateUrl)) continue;
-          const feed = await this.testAndVerifyFeed(candidateUrl, normalizedUrl);
-          if (feed) {
-            discoveredFeeds.push(feed);
-            if (discoveredFeeds.length >= 5) break; // Limit candidate discoveries
-          }
+      // Test candidate URLs
+      for (const candidateUrl of candidateUrls) {
+        if (discoveredFeeds.some((f) => f.feedUrl === candidateUrl)) continue;
+        const feed = await this.testAndVerifyFeed(candidateUrl, normalizedUrl);
+        if (feed) {
+          discoveredFeeds.push(feed);
+          if (discoveredFeeds.length >= 5) break; // Limit candidate discoveries
         }
       }
-    } catch (err: any) {
-      const isTimeout = err?.name === 'TimeoutError' || err?.message?.includes('timeout') || err?.message?.includes('aborted');
-      if (isTimeout) {
-        console.log(`[SourceDiscoveryEngine] HTML inspection timed out for ${normalizedUrl}`);
-      } else {
-        console.warn(`[SourceDiscoveryEngine] HTML inspection notice for ${normalizedUrl}:`, err?.message || err);
-      }
+    } catch {
+      // Gracefully ignore discovery probe failures without noisy logs
     }
 
     return discoveredFeeds;
@@ -114,7 +113,6 @@ export class SourceDiscoveryEngine {
    * Tests an individual feed candidate and executes full verification pipeline stages.
    */
   public async testAndVerifyFeed(feedUrl: string, websiteUrl: string): Promise<DiscoveredFeed | null> {
-    const startTime = Date.now();
     const pipeline = {
       discovered: true,
       validating: true,
@@ -126,20 +124,18 @@ export class SourceDiscoveryEngine {
     };
 
     try {
-      const response = await fetch(feedUrl, {
+      const res = await httpClientService.fetchWithRetry(feedUrl, {
+        timeoutMs: 6000,
+        retryAttempts: 1,
         headers: {
-          'User-Agent': 'Naw3iyaNewsBot/2.5 (+https://naweayh.xyz)',
-          'Accept': 'application/rss+xml, application/xml, text/xml, application/atom+xml, application/json',
+          Accept: 'application/rss+xml, application/xml, text/xml, application/atom+xml, application/json',
         },
-        signal: AbortSignal.timeout(7000),
       });
 
-      const responseTimeMs = Date.now() - startTime;
-
-      if (!response.ok) return null;
+      if (!res.ok || !res.body || res.body.trim().length < 40) return null;
       pipeline.connected = true;
 
-      const text = await response.text();
+      const text = res.body;
       pipeline.fetchTest = true;
 
       // Parse XML / RSS / Atom
@@ -180,7 +176,7 @@ export class SourceDiscoveryEngine {
         inferredCategory,
         inferredCountry,
         reliabilityScore: 85,
-        responseTimeMs,
+        responseTimeMs: res.responseTimeMs,
         articlesCount: items.length,
         sampleArticles,
         verificationPipeline: pipeline,
