@@ -372,14 +372,14 @@ export class PgArticlesRepository {
              s.country as "sourceCountry",
              s.trust_score as "sourceTrust",
              ((COALESCE(a.views_count, 0) * 1.5) + (COALESCE(a.shares_count, 0) * 3.0) + (COALESCE(a.saves_count, 0) * 2.0)) / 
-             POWER(GREATEST(0.5, EXTRACT(EPOCH FROM (NOW() - a.published_at)) / 3600.0) + 2.0, 1.2) as "trendingScore"
+             POWER(GREATEST(0.5, EXTRACT(EPOCH FROM (NOW() - COALESCE(a.published_at, a.created_at, NOW()))) / 3600.0) + 2.0, 1.2) as "trendingScore"
       FROM news_articles a
       LEFT JOIN news_sources s ON a.source_id = s.id
-      ORDER BY "trendingScore" DESC, a.published_at DESC
+      ORDER BY "trendingScore" DESC NULLS LAST, a.published_at DESC NULLS LAST
       LIMIT $1
     `;
     const res = await pool.query(sql, [limit]);
-    return res.rows;
+    return res.rows || [];
   }
 
   /**

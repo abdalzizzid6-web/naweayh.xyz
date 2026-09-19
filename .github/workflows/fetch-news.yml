@@ -15,42 +15,65 @@ jobs:
     steps:
       - name: Validate Secrets & Trigger Ingestion Endpoint
         run: |
-          TARGET_URL="${{ secrets.APP_URL }}"
-          if [ -z "$TARGET_URL" ]; then
-            echo "❌ ERROR: APP_URL secret is not set in GitHub Repository Secrets."
-            echo "Please add APP_URL (e.g. https://your-app.vercel.app) to Settings > Secrets and variables > Actions."
+          echo "Starting News Ingestion job..."
+
+          # 1. Determine APP_URL (Default to verified production domain if not explicitly provided in secrets)
+          RAW_URL="${{ secrets.APP_URL }}"
+          if [ -n "$RAW_URL" ]; then
+            echo "APP_URL configured: YES"
+            TARGET_URL="$RAW_URL"
+          else
+            echo "APP_URL configured: NO (Using verified production domain)"
+            TARGET_URL="https://naweayh.xyz"
+          fi
+
+          # Clean and normalize domain
+          TARGET_URL=$(echo "$TARGET_URL" | sed -e 's|^http://|https://|' -e 's|https://www\.|https://|' -e 's|/*$||')
+          ENDPOINT="${TARGET_URL}/api/cron/fetch-news"
+
+          # 2. Enforce CRON_SECRET: Fail fast with clear message if missing
+          if [ -z "${{ secrets.CRON_SECRET }}" ]; then
+            echo "CRON_SECRET configured: NO"
+            echo "❌ CRON_SECRET is missing"
+            echo "Please add CRON_SECRET to your GitHub Repository Secrets (Settings > Secrets and variables > Actions > New repository secret)."
+            echo "The value must match the CRON_SECRET environment variable configured in Vercel."
             exit 1
           fi
 
-          # Strip trailing slash if present
-          TARGET_URL="${TARGET_URL%/}"
-          ENDPOINT="${TARGET_URL}/api/cron/fetch-news"
-          echo "🚀 Triggering Ingestion endpoint: ${ENDPOINT}"
+          echo "CRON_SECRET configured: YES"
+          echo "Calling:"
+          echo "${ENDPOINT}"
 
-          AUTH_HEADER=""
-          if [ -n "${{ secrets.CRON_SECRET }}" ]; then
-            AUTH_HEADER="Authorization: Bearer ${{ secrets.CRON_SECRET }}"
-          fi
-
+          START_TS=$(date +%s%3N)
           HTTP_RESPONSE=$(curl -s -S --retry 3 --retry-delay 5 --max-time 180 \
             -w "\nHTTP_STATUS:%{http_code}\nTIME_TOTAL:%{time_total}s" \
-            ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "User-Agent: GitHub-Actions-NewsIngestionWorker/1.0" \
+            -H "Accept: application/json" \
             "${ENDPOINT}")
+          END_TS=$(date +%s%3N)
+          DURATION=$((END_TS - START_TS))
 
           HTTP_BODY=$(echo "$HTTP_RESPONSE" | sed -e '$d' | sed -e '$d')
           HTTP_STATUS=$(echo "$HTTP_RESPONSE" | grep "HTTP_STATUS:" | cut -d':' -f2)
           TIME_TOTAL=$(echo "$HTTP_RESPONSE" | grep "TIME_TOTAL:" | cut -d':' -f2)
 
-          echo "📊 Response Summary:"
-          echo "   HTTP Status: ${HTTP_STATUS}"
-          echo "   Execution Time: ${TIME_TOTAL}"
-          echo "   Response Body:"
-          echo "${HTTP_BODY}"
+          echo "HTTP Status: ${HTTP_STATUS}"
+          echo "Response: ${HTTP_BODY}"
+          echo "Execution Time: ${TIME_TOTAL}"
 
           if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
-            echo "✅ News Ingestion completed successfully."
+            echo "News Ingestion completed successfully"
             exit 0
+          elif [ "$HTTP_STATUS" -eq 401 ] || [ "$HTTP_STATUS" -eq 403 ]; then
+            echo "❌ Authentication Failure (HTTP ${HTTP_STATUS}): The endpoint rejected the request. Please verify that CRON_SECRET in GitHub Secrets matches CRON_SECRET in Vercel environment variables."
+            exit 1
+          elif [ "$HTTP_STATUS" -eq 404 ]; then
+            echo "❌ Not Found (HTTP 404): The endpoint ${ENDPOINT} does not exist."
+            exit 1
+          elif [ "$HTTP_STATUS" -eq 500 ]; then
+            echo "❌ Server Error (HTTP 500): The server failed while fetching news."
+            exit 1
           else
             echo "❌ Ingestion failed with HTTP status: ${HTTP_STATUS}"
             exit 1

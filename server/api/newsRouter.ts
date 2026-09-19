@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
-import { pool } from '../db/connection';
+import { pool, ensureDbInitialized } from '../db/connection';
 import { NEWS_CATEGORIES, COUNTRIES, YEMEN_REGIONS } from '../../src/services/newsService';
 import { newsIngestionService } from '../services/NewsIngestionService';
 import { sourceDiscoveryEngine } from '../services/SourceDiscoveryEngine';
@@ -103,8 +103,13 @@ export const validateCronSecret = (req: Request, res: Response, next: NextFuncti
     const querySecret = req.query['secret'] as string;
     
     let token = '';
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      token = authHeader.substring(7).trim();
+    if (authHeader) {
+      const headerStr = authHeader.trim();
+      if (headerStr.toLowerCase().startsWith('bearer ')) {
+        token = headerStr.substring(7).trim();
+      } else {
+        token = headerStr;
+      }
     } else if (xCronHeader) {
       token = xCronHeader.trim();
     } else if (querySecret) {
@@ -1257,8 +1262,9 @@ newsApiRouter.post(['/v1/analytics/track', '/analytics/track'], async (req, res)
 // 6. CRON JOBS (PROTECTED WITH CRON_SECRET) & SEO FEEDS
 // ==========================================
 
-newsApiRouter.get(['/cron/fetch-news', '/v1/cron/fetch-news'], validateCronSecret, async (_req, res) => {
+newsApiRouter.all(['/cron/fetch-news', '/v1/cron/fetch-news'], validateCronSecret, async (_req, res) => {
   try {
+    await ensureDbInitialized();
     const activeSources = await pgSourcesRepository.getActiveSources();
     let fetchedCount = 0;
     const batchSize = Math.min(activeSources.length, 10);
@@ -1286,7 +1292,7 @@ newsApiRouter.get(['/cron/fetch-news', '/v1/cron/fetch-news'], validateCronSecre
   }
 });
 
-newsApiRouter.get(['/cron/seo-refresh', '/v1/cron/seo-refresh'], validateCronSecret, async (_req, res) => {
+newsApiRouter.all(['/cron/seo-refresh', '/v1/cron/seo-refresh'], validateCronSecret, async (_req, res) => {
   try {
     const master = seoEngineService.generateMasterSitemapXML();
     const news = seoEngineService.generateNewsSitemapXML();
@@ -1302,29 +1308,65 @@ newsApiRouter.get(['/cron/seo-refresh', '/v1/cron/seo-refresh'], validateCronSec
   }
 });
 
-newsApiRouter.get(['/cron/trending-calc', '/v1/cron/trending-calc'], validateCronSecret, async (_req, res) => {
+newsApiRouter.all(['/cron/trending-calc', '/v1/cron/trending-calc', '/api/cron/trending-calc'], validateCronSecret, async (req, res) => {
   try {
-    const trendingRows = await pgArticlesRepository.getTrendingArticles(20);
-    const trendingIds = trendingRows.map(r => r.id);
+    await ensureDbInitialized();
+
+    const limitNum = Math.min(100, Math.max(1, parseInt((req.query.limit as string) || (req.body?.limit as string) || '20', 10)));
+    const trendingRows = await pgArticlesRepository.getTrendingArticles(limitNum);
+    
+    const trendingIds = (trendingRows || [])
+      .map(r => Number(r.id))
+      .filter(id => !isNaN(id) && id > 0);
+
+    let updatedCount = 0;
 
     // Update is_trending flags in PostgreSQL Source of Truth
     if (trendingIds.length > 0) {
-      await pool.query(
+      // 1. Reset old trending flags that are not in the new top list
+      const resetRes = await pool.query(
         `UPDATE news_articles 
-         SET is_trending = CASE WHEN id = ANY($1::int[]) THEN true ELSE false END,
-             updated_at = NOW()`,
+         SET is_trending = FALSE, updated_at = NOW()
+         WHERE is_trending = TRUE AND NOT (id = ANY($1::int[]))`,
         [trendingIds]
+      );
+
+      // 2. Set new trending flags for the top list
+      const setRes = await pool.query(
+        `UPDATE news_articles 
+         SET is_trending = TRUE, updated_at = NOW()
+         WHERE id = ANY($1::int[]) AND is_trending = FALSE`,
+        [trendingIds]
+      );
+
+      updatedCount = (setRes.rowCount || 0) + (resetRes.rowCount || 0);
+    } else {
+      // If 0 articles found (empty database), ensure no dangling trending flags
+      await pool.query(
+        `UPDATE news_articles SET is_trending = FALSE WHERE is_trending = TRUE`
       );
     }
 
-    res.json({
+    return res.status(200).json({
       success: true,
       timestamp: new Date().toISOString(),
-      count: trendingRows.length,
+      trendingCount: trendingIds.length,
+      topTrendingArticles: (trendingRows || []).slice(0, 5).map(a => ({
+        id: a.id,
+        title: a.title,
+        trendingScore: Number(a.trendingScore) || 0,
+        publishedAt: a.published_at,
+      })),
+      updatedRows: updatedCount,
       message: 'Trending velocity algorithm calculated and synchronized to PostgreSQL successfully',
     });
   } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
+    console.error('[Trending Worker] Calculation failed:', error);
+    return res.status(500).json({
+      success: false,
+      code: 'TRENDING_CALCULATION_FAILED',
+      error: error.message || 'Internal database calculation error',
+    });
   }
 });
 

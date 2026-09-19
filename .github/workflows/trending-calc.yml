@@ -13,44 +13,78 @@ jobs:
     timeout-minutes: 3
 
     steps:
-      - name: Validate Secrets & Trigger Trending Endpoint
+      - name: Validate Configuration & Trigger Trending Endpoint
         run: |
-          TARGET_URL="${{ secrets.APP_URL }}"
-          if [ -z "$TARGET_URL" ]; then
-            echo "❌ ERROR: APP_URL secret is not set in GitHub Repository Secrets."
-            echo "Please add APP_URL (e.g. https://your-app.vercel.app) to Settings > Secrets and variables > Actions."
+          echo "Starting Trending Calculator"
+
+          # 1. Determine APP_URL (Default to verified production domain if not set in secrets)
+          RAW_URL="${{ secrets.APP_URL }}"
+          if [ -n "$RAW_URL" ]; then
+            echo "APP_URL configured: YES"
+            TARGET_URL="$RAW_URL"
+          else
+            echo "APP_URL configured: YES (Default: https://naweayh.xyz)"
+            TARGET_URL="https://naweayh.xyz"
+          fi
+
+          # Clean and normalize domain (enforce https://naweayh.xyz and remove trailing slashes)
+          TARGET_URL=$(echo "$TARGET_URL" | sed -e 's|^http://|https://|' -e 's|https://www\.|https://|' -e 's|/*$||')
+          ENDPOINT="${TARGET_URL}/api/cron/trending-calc"
+
+          # 2. Enforce CRON_SECRET: Fail fast with clear message if missing
+          if [ -z "${{ secrets.CRON_SECRET }}" ]; then
+            echo "CRON_SECRET configured: NO"
+            echo "❌ CRON_SECRET is missing"
+            echo "Please add CRON_SECRET to your GitHub Repository Secrets (Settings > Secrets and variables > Actions > New repository secret)."
+            echo "The value must match the CRON_SECRET environment variable configured in Vercel."
             exit 1
           fi
 
-          TARGET_URL="${TARGET_URL%/}"
-          ENDPOINT="${TARGET_URL}/api/cron/trending-calc"
-          echo "🚀 Triggering Trending Calculation: ${ENDPOINT}"
+          echo "CRON_SECRET configured: YES"
+          echo "Calling:"
+          echo "${ENDPOINT}"
 
-          AUTH_HEADER=""
-          if [ -n "${{ secrets.CRON_SECRET }}" ]; then
-            AUTH_HEADER="Authorization: Bearer ${{ secrets.CRON_SECRET }}"
-          fi
-
+          # 3. Execute HTTP Call with Authorization header
+          START_TS=$(date +%s%3N)
           HTTP_RESPONSE=$(curl -s -S --retry 2 --retry-delay 5 --max-time 120 \
             -w "\nHTTP_STATUS:%{http_code}\nTIME_TOTAL:%{time_total}s" \
-            ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "User-Agent: GitHub-Actions-TrendingWorker/1.0" \
+            -H "Accept: application/json" \
             "${ENDPOINT}")
+          END_TS=$(date +%s%3N)
+          DURATION=$((END_TS - START_TS))
 
           HTTP_BODY=$(echo "$HTTP_RESPONSE" | sed -e '$d' | sed -e '$d')
           HTTP_STATUS=$(echo "$HTTP_RESPONSE" | grep "HTTP_STATUS:" | cut -d':' -f2)
-          TIME_TOTAL=$(echo "$HTTP_RESPONSE" | grep "TIME_TOTAL:" | cut -d':' -f2)
 
-          echo "📊 Response Summary:"
-          echo "   HTTP Status: ${HTTP_STATUS}"
-          echo "   Execution Time: ${TIME_TOTAL}"
-          echo "   Response Body:"
+          echo "HTTP Status: ${HTTP_STATUS}"
+          echo "Response:"
           echo "${HTTP_BODY}"
+          echo "Duration: ${DURATION} ms"
 
+          # 4. Status Evaluation & Clear Error Diagnostics
           if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
-            echo "✅ Trending velocity calculated successfully."
+            echo "Trending calculated and synchronized successfully"
             exit 0
+          elif [ "$HTTP_STATUS" -eq 401 ] || [ "$HTTP_STATUS" -eq 403 ]; then
+            echo "❌ Authentication Failure (HTTP ${HTTP_STATUS}): The endpoint rejected the request."
+            echo "Diagnosis: Authentication / CRON_SECRET mismatch. Verify that CRON_SECRET in GitHub Secrets matches CRON_SECRET in Vercel Environment Variables."
+            exit 1
+          elif [ "$HTTP_STATUS" -eq 404 ]; then
+            echo "❌ Endpoint Not Found (HTTP 404): The endpoint ${ENDPOINT} does not exist."
+            echo "Diagnosis: Endpoint / Routing issue. Ensure the server routing includes /api/cron/trending-calc."
+            exit 1
+          elif [ "$HTTP_STATUS" -eq 500 ]; then
+            echo "❌ Server Error (HTTP 500): The server failed while calculating trending velocity."
+            echo "Diagnosis: Server / Database / Code issue. Check if DATABASE_URL or database connection is properly configured in Vercel."
+            exit 1
+          elif [ "$HTTP_STATUS" -eq 502 ] || [ "$HTTP_STATUS" -eq 503 ]; then
+            echo "❌ Bad Gateway / Service Unavailable (HTTP ${HTTP_STATUS}):"
+            echo "Diagnosis: Production availability issue. The production deployment is currently unavailable or restarting."
+            exit 1
           else
             echo "❌ Trending calculation failed with HTTP status: ${HTTP_STATUS}"
             exit 1
           fi
+

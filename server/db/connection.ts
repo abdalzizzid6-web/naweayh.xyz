@@ -1,6 +1,5 @@
 import { Pool } from 'pg';
 import dotenv from 'dotenv';
-import { PGlite } from '@electric-sql/pglite';
 import { ENTERPRISE_SOURCE_CATALOG } from './enterpriseSourcesSeed';
 import { INITIAL_PRODUCTION_ARTICLES } from './initialArticlesSeed';
 
@@ -45,55 +44,72 @@ if (connectionString) {
   };
 } else {
   if (process.env.NODE_ENV === 'production') {
-    console.error('FATAL ERROR: DATABASE_URL environment variable is missing in Production! System will not start with fallback.');
-    throw new Error('CRITICAL_DATABASE_ERROR: DATABASE_URL must be configured in Production.');
-  }
-  
-  console.warn('NOTICE: DATABASE_URL is missing. Using local PGlite for local testing/development only.');
-  isPglite = true;
-  const pglite = new PGlite();
+    console.error('FATAL ERROR: DATABASE_URL environment variable is missing in Production! Database queries will fail with informative message.');
+    pool = {
+      query: async () => {
+        throw new Error('CRITICAL_DATABASE_ERROR: DATABASE_URL environment variable is missing in Production! Please configure DATABASE_URL in environment settings.');
+      },
+      connect: async () => {
+        throw new Error('CRITICAL_DATABASE_ERROR: DATABASE_URL environment variable is missing in Production! Please configure DATABASE_URL in environment settings.');
+      },
+    };
+  } else {
+    console.warn('NOTICE: DATABASE_URL is missing. Using local PGlite for local testing/development only.');
+    isPglite = true;
 
-  // PGlite WASM runs in single-user mode. We use a sequential promise queue to prevent concurrency-induced stack depth limit errors.
-  let queryQueue: Promise<any> = Promise.resolve();
-  const enqueueQuery = async <T>(task: () => Promise<T>): Promise<T> => {
-    return new Promise<T>((resolve, reject) => {
-      queryQueue = queryQueue
-        .catch(() => {})
-        .then(async () => {
-          try {
-            const res = await task();
-            resolve(res);
-          } catch (err) {
-            reject(err);
-          }
-        });
-    });
-  };
-  
-  pool = {
-    query: async (text, params) => {
-      await pglite.waitReady;
-      return enqueueQuery(async () => {
-        const result = await pglite.query(text, params);
-        return {
-          rows: result.rows,
-          rowCount: result.rows ? result.rows.length : 0,
-        };
-      });
-    },
-    connect: async () => {
-      await pglite.waitReady;
-      return {
-        query: async (text: string, params?: any[]) => {
-          return enqueueQuery(async () => {
-            const result = await pglite.query(text, params);
-            return { rows: result.rows, rowCount: result.rows ? result.rows.length : 0 };
+    // Lazily load PGlite only in non-production local development
+    let pgliteInstance: any = null;
+    let queryQueue: Promise<any> = Promise.resolve();
+
+    const getPglite = async () => {
+      if (!pgliteInstance) {
+        const { PGlite } = await import('@electric-sql/pglite');
+        pgliteInstance = new PGlite();
+        await pgliteInstance.waitReady;
+      }
+      return pgliteInstance;
+    };
+
+    const enqueueQuery = async <T>(task: () => Promise<T>): Promise<T> => {
+      return new Promise<T>((resolve, reject) => {
+        queryQueue = queryQueue
+          .catch(() => {})
+          .then(async () => {
+            try {
+              const res = await task();
+              resolve(res);
+            } catch (err) {
+              reject(err);
+            }
           });
-        },
-        release: () => {},
-      };
-    },
-  };
+      });
+    };
+    
+    pool = {
+      query: async (text, params) => {
+        const pglite = await getPglite();
+        return enqueueQuery(async () => {
+          const result = await pglite.query(text, params);
+          return {
+            rows: result.rows,
+            rowCount: result.rows ? result.rows.length : 0,
+          };
+        });
+      },
+      connect: async () => {
+        const pglite = await getPglite();
+        return {
+          query: async (text: string, params?: any[]) => {
+            return enqueueQuery(async () => {
+              const result = await pglite.query(text, params);
+              return { rows: result.rows, rowCount: result.rows ? result.rows.length : 0 };
+            });
+          },
+          release: () => {},
+        };
+      },
+    };
+  }
 }
 
 export { pool };
