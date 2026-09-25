@@ -10,9 +10,25 @@ jobs:
   calculate_trending:
     name: Trigger Trending Velocity Algorithm
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run Trending Diagnostics Probe
+        env:
+          APP_URL: ${{ secrets.APP_URL || 'https://naweayh.xyz' }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          npx --yes tsx .github/scripts/diagnose-trending.ts
+        continue-on-error: true
+
       - name: Validate Configuration & Trigger Trending Endpoint
         run: |
           echo "Starting Trending Calculator"
