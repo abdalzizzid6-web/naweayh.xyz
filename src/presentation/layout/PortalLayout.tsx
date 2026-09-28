@@ -405,21 +405,22 @@ export const PortalLayout: React.FC<{ children: React.ReactNode }> = ({ children
           </div>
 
           <div>
-            <h4 className="text-white font-bold mb-4 text-sm">المنصة والمعايير</h4>
+            <h4 className="text-white font-bold mb-4 text-sm">المنصة والمعايير التحريرية</h4>
             <ul className="space-y-2 text-slate-400">
-              <li><a href="#" className="hover:text-emerald-400 transition-colors">المصادر المعتمدة ومؤشرات الثقة</a></li>
-              <li><a href="#" className="hover:text-emerald-400 transition-colors">دليل النشر والأخلاقيات الصحفية</a></li>
-              <li><a href="#" className="hover:text-emerald-400 transition-colors">سياسة الخصوصية واستخدام البيانات</a></li>
-              <li><a href="#" className="hover:text-emerald-400 transition-colors">شروط الاستخدام</a></li>
+              <li><button onClick={() => { navigate('/about'); }} className="hover:text-emerald-400 transition-colors text-right">من نحن ورؤيتنا التحريرية</button></li>
+              <li><button onClick={() => { navigate('/editorial-policy'); }} className="hover:text-emerald-400 transition-colors text-right">الميثاق التحريري والتحقق الصحفي (E-E-A-T)</button></li>
+              <li><button onClick={() => { navigate('/corrections'); }} className="hover:text-emerald-400 transition-colors text-right">سياسة التصحيح والشفافية</button></li>
+              <li><button onClick={() => { navigate('/advertising-policy'); }} className="hover:text-emerald-400 transition-colors text-right">سياسة الإعلانات والرعاية التجارية</button></li>
             </ul>
           </div>
 
           <div>
-            <h4 className="text-white font-bold mb-4 text-sm">التواصل والتغذية</h4>
+            <h4 className="text-white font-bold mb-4 text-sm">الخصوصية والأمان والتواصل</h4>
             <ul className="space-y-2 text-slate-400">
-              <li><a href="#" className="hover:text-emerald-400 transition-colors">اتصل بغرفة الأخبار</a></li>
-              <li><a href="/rss.xml" target="_blank" className="hover:text-emerald-400 transition-colors">خلاصات RSS والمعاينة</a></li>
-              <li><a href="/sitemap-news.xml" target="_blank" className="hover:text-emerald-400 transition-colors">خريطة أخبار Google</a></li>
+              <li><button onClick={() => { navigate('/privacy-policy'); }} className="hover:text-emerald-400 transition-colors text-right">سياسة الخصوصية وحماية البيانات</button></li>
+              <li><button onClick={() => { navigate('/terms'); }} className="hover:text-emerald-400 transition-colors text-right">شروط الاستخدام والخدمة (Fair Use)</button></li>
+              <li><button onClick={() => { navigate('/cookie-policy'); }} className="hover:text-emerald-400 transition-colors text-right">سياسة ملفات تعريف الارتباط (Cookies)</button></li>
+              <li><button onClick={() => { navigate('/contact'); }} className="hover:text-emerald-400 transition-colors text-right">اتصل بغرفة الأخبار وهيئة التحرير</button></li>
             </ul>
           </div>
         </div>

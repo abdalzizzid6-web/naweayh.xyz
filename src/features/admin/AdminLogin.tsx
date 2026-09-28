@@ -5,8 +5,8 @@ import { useApp } from '../../presentation/context/AppContext';
 
 export const AdminLogin: React.FC = () => {
   const { setCurrentUser, setActiveTab, navigate } = useApp();
-  const [email, setEmail] = useState('admin@naweayh.xyz');
-  const [password, setPassword] = useState('admin123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -18,6 +18,7 @@ export const AdminLogin: React.FC = () => {
     try {
       const res = await fetch('/api/v1/auth/login', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim(), password })
       });
@@ -119,17 +120,6 @@ export const AdminLogin: React.FC = () => {
               )}
             </button>
           </form>
-
-          {/* Quick Credential Helper */}
-          <div className="mt-4 p-3 bg-slate-950/70 border border-slate-800 rounded-xl text-center text-xs text-slate-400">
-            <span className="text-slate-500">بيانات دخول المدير الافتراضية:</span>
-            <div className="mt-1 font-mono text-indigo-400 font-bold flex items-center justify-center gap-3">
-              <span>admin@naweayh.xyz</span>
-              <span className="text-slate-600">•</span>
-              <span className="text-emerald-400">admin123</span>
-            </div>
-          </div>
-
           {/* Return to Portal */}
           <div className="mt-6 pt-5 border-t border-slate-800/80 text-center">
             <button

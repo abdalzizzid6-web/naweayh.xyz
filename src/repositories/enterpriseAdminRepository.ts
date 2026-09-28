@@ -277,7 +277,7 @@ class EnterpriseAdminRepository extends BaseRepository<any> {
   ];
 
   private apiKeys: EnterpriseAPIKey[] = [
-    { id: 'KEY-01', name: 'Gemini AI Studio Engine Key', service: 'Gemini AI Pro', keyMasked: 'AIzaSyD...9Xk2L', status: 'Active', createdDate: '2026-01-10', monthlyCalls: 184500, quotaLimit: 1000000 },
+    { id: 'KEY-01', name: 'Gemini AI Studio Engine Key', service: 'Gemini AI Pro', keyMasked: 'AIza••••••••configured', status: 'Active', createdDate: '2026-01-10', monthlyCalls: 184500, quotaLimit: 1000000 },
     { id: 'KEY-02', name: 'Firebase Service Account Credentials', service: 'Firebase Admin', keyMasked: 'firebase-adminsdk-3...json', status: 'Active', createdDate: '2026-01-12', monthlyCalls: 540200, quotaLimit: 5000000 },
     { id: 'KEY-03', name: 'Twitter/X Enterprise Publisher Key', service: 'Twitter/X OAuth', keyMasked: 'tw_ent_884930...01x', status: 'Active', createdDate: '2026-02-01', monthlyCalls: 12500, quotaLimit: 50000 },
     { id: 'KEY-04', name: 'WhatsApp Business Cloud API', service: 'WhatsApp Business', keyMasked: 'EAAG129...xK90', status: 'Active', createdDate: '2026-03-15', monthlyCalls: 89000, quotaLimit: 200000 },

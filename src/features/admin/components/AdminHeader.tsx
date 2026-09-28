@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Search, Bell, Shield, UserCheck, Sparkles, Command, Sun, Moon, Zap, Activity, LogOut } from 'lucide-react';
 import { UserRole } from '../../../types';
 import { Badge } from '../../../components/ui/Badge';
+import { AuthService } from '../../../services/AuthService';
 
 interface AdminHeaderProps {
   currentUser: { name: string; role: UserRole };
@@ -164,9 +165,7 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
             <div className="w-px h-5 bg-slate-700"></div>
             <button
               onClick={() => {
-                import('../../../services/AuthService').then(({ AuthService }) => {
-                  AuthService.logout();
-                });
+                AuthService.logout();
               }}
               title="تسجيل الخروج من لوحة التحكم"
               className="flex items-center gap-1 text-xs font-bold text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 px-2 py-1 rounded transition-colors"

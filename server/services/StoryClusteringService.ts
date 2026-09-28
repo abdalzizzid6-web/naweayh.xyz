@@ -119,14 +119,16 @@ export class StoryClusteringService {
   }
 
   public async createNewCluster(article: ArticleInput): Promise<number> {
-    const slug =
-      article.title
-        .replace(/[\s\u0600-\u06FF]+/g, '-')
-        .replace(/[^\w\-]+/g, '')
-        .toLowerCase()
-        .slice(0, 70) +
-      '-' +
-      Math.random().toString(36).substring(2, 7);
+    const cleanArabicSlug = (article.title || '')
+      .toLowerCase()
+      .replace(/[^\u0600-\u06FFa-zA-Z0-9\s]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 60);
+
+    const randomSuffix = Math.random().toString(36).substring(2, 7);
+    const slug = cleanArabicSlug ? `${cleanArabicSlug}-${randomSuffix}` : `story-${randomSuffix}`;
 
     const insertRes = await pool.query(
       `INSERT INTO story_clusters (

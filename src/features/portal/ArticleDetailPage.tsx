@@ -6,6 +6,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { ArticleDetailSkeleton } from '../../components/news';
 import { SEOHead } from '../../seo-engine/SEOHead';
+import { AdSlot } from '../../components/ads/AdSlot';
 import {
   Share2,
   Bookmark,
@@ -254,6 +255,9 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
         </div>
       </div>
 
+      {/* Top Leaderboard Ad Slot */}
+      <AdSlot placement="top-leaderboard" />
+
       {/* Main Grid: 8 Cols Article Reading + 4 Cols Editorial Sidebar */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         
@@ -359,6 +363,19 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
                   <ShieldCheck className="w-4 h-4 text-emerald-600" />
                   مؤشر الثقة {article.trustScore || 95}%
                 </span>
+              </div>
+            </div>
+
+            {/* Source Licensing & Fair Use Attribution Notice */}
+            <div className="p-3.5 bg-slate-50 dark:bg-slate-900/70 rounded-2xl border border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-400 flex items-start gap-2.5">
+              <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+              <div className="leading-relaxed">
+                <strong className="text-slate-900 dark:text-slate-200 block mb-0.5">
+                  إفصاح الشفافية والملكية الفكرية:
+                </strong>
+                هذه المادة تمثل موجزاً إخبارياً محرراً استناداً إلى التغطية الصحفية الأصلية المنشورة لدى{' '}
+                <span className="font-bold text-slate-900 dark:text-white">{primarySource?.name || 'المصدر الأصلي'}</span>.
+                جميع حقوق النشر محفوظة للناشر الأصلي. توفر منصة أخبار نوعية هذا المحتوى في إطار الاستخدام العادل للأغراض الإخبارية ونشر المعرفة الموثوقة مع إتاحة الرابط المباشر للمقال الأصلي.
               </div>
             </div>
           </div>
@@ -492,12 +509,16 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
                 }
 
                 return (
-                  <p
-                    key={index}
-                    className={`text-slate-800 dark:text-slate-100 font-sans tracking-normal ${fontSizeClasses}`}
-                  >
-                    {paragraph}
-                  </p>
+                  <React.Fragment key={index}>
+                    <p
+                      className={`text-slate-800 dark:text-slate-100 font-sans tracking-normal ${fontSizeClasses}`}
+                    >
+                      {paragraph}
+                    </p>
+                    {index === 1 && paragraphsToRender.length > 2 && (
+                      <AdSlot placement="in-article" />
+                    )}
+                  </React.Fragment>
                 );
               })}
 
@@ -592,6 +613,10 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
               ))}
             </div>
           )}
+
+          {/* Bottom Article Ad Slot */}
+          <AdSlot placement="bottom-article" />
+          <AdSlot placement="mobile-banner" />
         </div>
 
         {/* Editorial Sidebar Column (4 cols on Desktop) */}
@@ -635,6 +660,9 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
               </div>
             </div>
           )}
+
+          {/* Sidebar Ad Slot */}
+          <AdSlot placement="sidebar" />
 
           {/* Most Read Leaderboard */}
           {mostReadSidebar.length > 0 && (

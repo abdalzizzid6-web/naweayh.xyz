@@ -21,7 +21,9 @@ export class EventBus {
         try {
           cb(data);
         } catch (err) {
-          console.error(`[EventBus] Error handling event ${event}:`, err);
+          if (typeof process !== 'undefined' && process.env && process.env.NODE_ENV !== 'production') {
+            console.error(`[EventBus] Error handling event ${event}:`, err);
+          }
         }
       });
     }

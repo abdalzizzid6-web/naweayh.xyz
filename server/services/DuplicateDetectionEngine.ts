@@ -170,13 +170,14 @@ export class DuplicateDetectionEngine {
    */
   public async loadRecentCandidates(hours: number = 72): Promise<CandidateArticle[]> {
     try {
+      const cutoff = new Date(Date.now() - hours * 3600 * 1000).toISOString();
       const res = await pool.query(
         `SELECT id, title, canonical_url, original_article_url, published_at, source_id
          FROM news_articles
-         WHERE published_at >= NOW() - ($1 * INTERVAL '1 hour')
+         WHERE published_at >= $1
          ORDER BY published_at DESC
-         LIMIT 1000`,
-        [hours]
+         LIMIT 500`,
+        [cutoff]
       );
 
       return res.rows.map((row: any) => ({
@@ -308,6 +309,19 @@ export class DuplicateDetectionEngine {
       duplicateType: 'NONE',
       similarityScore: highestScore,
     };
+  }
+
+  /**
+   * Evaluates if two articles or titles are duplicates using lexical and semantic metrics
+   */
+  public areArticlesDuplicates(textA: string, textB: string): boolean {
+    if (!textA || !textB) return false;
+    const lev = this.computeLevenshteinSimilarity(textA, textB);
+    if (lev >= 0.75) return true;
+    const tokensA = this.tokenize(textA);
+    const tokensB = this.tokenize(textB);
+    const jaccard = this.computeJaccardSimilarity(tokensA, tokensB);
+    return jaccard >= 0.60;
   }
 }
 

@@ -125,10 +125,31 @@ export class AIPipelineService {
       };
     }
 
+    // Deduplication check: Never send the exact same article to Gemini more than once!
+    if (articleId) {
+      try {
+        const completedRes = await pool.query(
+          `SELECT result FROM ai_jobs 
+           WHERE article_id = $1 AND status = 'COMPLETED' AND result IS NOT NULL 
+           ORDER BY completed_at DESC LIMIT 1`,
+          [articleId]
+        );
+        if (completedRes.rows.length > 0 && completedRes.rows[0].result) {
+          const prevResult = completedRes.rows[0].result;
+          if (prevResult.status === 'COMPLETED' || prevResult.arabicSummary) {
+            console.log(`[AIPipeline] Article #${articleId} already analyzed by Gemini. Reusing completed result.`);
+            return prevResult as AIProcessedArticle;
+          }
+        }
+      } catch (checkErr) {
+        // Non-blocking DB check
+      }
+    }
+
     const jobId = await this.recordJobStart(articleId, { title, sourceName });
     let lastError = 'No models responded';
 
-    const modelsToTry = ['gemini-3.6-flash'];
+    const modelsToTry = ['gemini-2.5-flash', 'gemini-1.5-flash'];
 
     for (const model of modelsToTry) {
       try {

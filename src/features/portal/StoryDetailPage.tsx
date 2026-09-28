@@ -3,6 +3,8 @@ import { storiesService, StoryCluster } from '../../services/storiesService';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
+import { useApp } from '../../presentation/context/AppContext';
+import { SEOHead } from '../../seo-engine/SEOHead';
 import { 
   Globe, 
   Clock, 
@@ -27,6 +29,7 @@ interface StoryDetailPageProps {
 }
 
 export const StoryDetailPage: React.FC<StoryDetailPageProps> = ({ slug, onNavigateHome, onOpenArticleBySlug }) => {
+  const { navigate } = useApp();
   const [story, setStory] = useState<StoryCluster | null>(null);
   const [timeline, setTimeline] = useState<any[]>([]);
   const [relatedStories, setRelatedStories] = useState<StoryCluster[]>([]);
@@ -67,6 +70,7 @@ export const StoryDetailPage: React.FC<StoryDetailPageProps> = ({ slug, onNaviga
   if (!story) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6" dir="rtl">
+        <SEOHead is404={true} />
         <div className="text-center space-y-4 max-w-md">
           <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-2xl flex items-center justify-center mx-auto text-2xl font-bold">!</div>
           <h2 className="text-2xl font-bold text-slate-900">القصة غير موجودة أو تم أرشفتها</h2>
@@ -79,6 +83,7 @@ export const StoryDetailPage: React.FC<StoryDetailPageProps> = ({ slug, onNaviga
 
   return (
     <div className="min-h-screen bg-slate-50 pb-16" dir="rtl">
+      <SEOHead story={{ title: story.title, summary: story.summary, slug: story.slug }} />
       {/* Breadcrumb / Top Bar */}
       <div className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
@@ -401,7 +406,7 @@ export const StoryDetailPage: React.FC<StoryDetailPageProps> = ({ slug, onNaviga
               {relatedStories.map((rel) => (
                 <Card 
                   key={rel.id} 
-                  onClick={() => window.location.href = `/story/${rel.slug}`}
+                  onClick={() => navigate(`/story/${rel.slug}`)}
                   className="p-5 bg-white border border-slate-200 hover:border-emerald-400 transition-all rounded-2xl cursor-pointer space-y-3 shadow-2xs"
                 >
                   <div className="flex items-center justify-between text-xs text-slate-500">

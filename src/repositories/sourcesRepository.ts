@@ -65,7 +65,7 @@ const INITIAL_SOURCES: NewsSource[] = [
     status: 'Active',
     lastFetchedAt: '2026-08-07 13:39:00',
     articlesCountToday: 420,
-    apiKey: 'demo-newsapi-key-90',
+    apiKey: undefined,
   },
   {
     id: 'src-5',
@@ -82,7 +82,7 @@ const INITIAL_SOURCES: NewsSource[] = [
     status: 'Active',
     lastFetchedAt: '2026-08-07 13:35:00',
     articlesCountToday: 180,
-    apiKey: 'demo-gnews-key-90',
+    apiKey: undefined,
   },
   {
     id: 'src-6',
@@ -99,7 +99,7 @@ const INITIAL_SOURCES: NewsSource[] = [
     status: 'Active',
     lastFetchedAt: '2026-08-07 13:20:00',
     articlesCountToday: 240,
-    apiKey: 'demo-mediastack-key-90',
+    apiKey: undefined,
   },
   {
     id: 'src-7',

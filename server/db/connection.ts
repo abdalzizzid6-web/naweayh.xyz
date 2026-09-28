@@ -59,30 +59,48 @@ if (connectionString) {
 
     // Lazily load PGlite only in non-production local development
     let pgliteInstance: any = null;
-    let queryQueue: Promise<any> = Promise.resolve();
+    let isProcessingQueue = false;
+    const taskQueue: Array<() => Promise<void>> = [];
+
+    const processNext = async () => {
+      if (isProcessingQueue || taskQueue.length === 0) return;
+      isProcessingQueue = true;
+      const nextTask = taskQueue.shift();
+      if (nextTask) {
+        try {
+          await nextTask();
+        } catch {}
+      }
+      isProcessingQueue = false;
+      if (taskQueue.length > 0) {
+        setImmediate(processNext);
+      }
+    };
+
+    const enqueueQuery = <T>(task: () => Promise<T>): Promise<T> => {
+      return new Promise<T>((resolve, reject) => {
+        taskQueue.push(async () => {
+          try {
+            const res = await task();
+            resolve(res);
+          } catch (err) {
+            reject(err);
+          }
+        });
+        processNext();
+      });
+    };
 
     const getPglite = async () => {
       if (!pgliteInstance) {
         const { PGlite } = await import('@electric-sql/pglite');
         pgliteInstance = new PGlite();
         await pgliteInstance.waitReady;
+        try {
+          await pgliteInstance.query("SET max_stack_depth = '100kB'");
+        } catch {}
       }
       return pgliteInstance;
-    };
-
-    const enqueueQuery = async <T>(task: () => Promise<T>): Promise<T> => {
-      return new Promise<T>((resolve, reject) => {
-        queryQueue = queryQueue
-          .catch(() => {})
-          .then(async () => {
-            try {
-              const res = await task();
-              resolve(res);
-            } catch (err) {
-              reject(err);
-            }
-          });
-      });
     };
     
     pool = {
@@ -134,6 +152,9 @@ export async function testDbConnection() {
 export async function initDb() {
   try {
     console.log('Initializing Database Schema...');
+    if (isPglite) {
+      await pool.query("SET max_stack_depth = '100kB'").catch(() => {});
+    }
     const statements = dbSchemaDefinition.split(';').filter(s => s.trim().length > 0);
     for (const stmt of statements) {
       try {
@@ -194,12 +215,19 @@ export async function initDb() {
       `CREATE INDEX IF NOT EXISTS idx_articles_country ON news_articles(country);`,
       `CREATE INDEX IF NOT EXISTS idx_articles_story_cluster_id ON news_articles(story_cluster_id);`,
       `CREATE INDEX IF NOT EXISTS idx_articles_slug ON news_articles(slug);`,
+      `CREATE INDEX IF NOT EXISTS idx_articles_content_status ON news_articles(content_status);`,
+      `CREATE INDEX IF NOT EXISTS idx_articles_cat_pub ON news_articles(category, published_at DESC);`,
+      `CREATE INDEX IF NOT EXISTS idx_articles_country_pub ON news_articles(country, published_at DESC);`,
       `CREATE INDEX IF NOT EXISTS idx_articles_is_breaking ON news_articles(is_breaking) WHERE is_breaking = TRUE;`,
       `CREATE INDEX IF NOT EXISTS idx_articles_is_trending ON news_articles(is_trending) WHERE is_trending = TRUE;`,
       `CREATE INDEX IF NOT EXISTS idx_articles_views_trending ON news_articles(views_count, shares_count, published_at DESC);`,
       `CREATE INDEX IF NOT EXISTS idx_sources_enabled_retry ON news_sources(enabled, next_retry_at);`,
+      `CREATE INDEX IF NOT EXISTS idx_sources_next_fetch ON news_sources(next_retry_at, cooldown_until);`,
       `CREATE INDEX IF NOT EXISTS idx_sources_country ON news_sources(country);`,
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_sources_name_unique ON news_sources(name);`,
+
+      // Full Text Search (GIN Index) for Sub-millisecond Arabic & Multilingual Keyword Search
+      `CREATE INDEX IF NOT EXISTS idx_articles_fts_gin ON news_articles USING gin(to_tsvector('simple', COALESCE(title, '') || ' ' || COALESCE(summary, '')));`,
 
       // Persistent User Saved Articles Table (PostgreSQL Source of Truth)
       `CREATE TABLE IF NOT EXISTS user_saved_articles (
@@ -222,7 +250,33 @@ export async function initDb() {
         viewer_hash VARCHAR(64) NOT NULL,
         viewed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );`,
-      `CREATE INDEX IF NOT EXISTS idx_views_log_hash_time ON article_views_log(article_id, viewer_hash, viewed_at);`
+      `CREATE INDEX IF NOT EXISTS idx_views_log_hash_time ON article_views_log(article_id, viewer_hash, viewed_at);`,
+
+      // Social Platforms and Post Logs
+      `CREATE TABLE IF NOT EXISTS social_platforms (
+        id VARCHAR(50) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        type VARCHAR(50) NOT NULL,
+        enabled BOOLEAN DEFAULT TRUE,
+        auto_publish BOOLEAN DEFAULT TRUE,
+        connected BOOLEAN DEFAULT FALSE,
+        account_name VARCHAR(255),
+        credentials JSONB DEFAULT '{}'::jsonb,
+        last_synced_at TIMESTAMP,
+        last_error TEXT,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );`,
+      `CREATE TABLE IF NOT EXISTS social_posts_log (
+        id SERIAL PRIMARY KEY,
+        article_id INT REFERENCES news_articles(id) ON DELETE SET NULL,
+        platform_id VARCHAR(50) NOT NULL,
+        platform_name VARCHAR(100) NOT NULL,
+        post_text TEXT NOT NULL,
+        post_url VARCHAR(500),
+        status VARCHAR(50) DEFAULT 'SUCCESS',
+        error_message TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );`
     ];
     for (const alterStmt of alterCols) {
       try { await pool.query(alterStmt); } catch {}
@@ -329,38 +383,53 @@ export async function initDb() {
 
     // Ensure Single Dedicated Admin account exists in users table
     const adminEmail = (process.env.ADMIN_EMAIL || 'admin@naweayh.xyz').toLowerCase().trim();
-    const initialPassword = process.env.ADMIN_INITIAL_PASSWORD || process.env.DEV_ADMIN_PASSWORD || 'admin123';
 
-    // NOTE: NEVER delete existing users during database initialization!
-    const bcrypt = await import('bcrypt');
-    const passwordHash = await bcrypt.hash(initialPassword, 10);
-    
     const adminUserRes = await pool.query(
       "SELECT u.id, u.username, u.email FROM users u WHERE u.username = 'admin' OR LOWER(u.email) = $1 LIMIT 1",
       [adminEmail]
     );
 
     if (adminUserRes.rows.length === 0) {
-      await pool.query(`
-        INSERT INTO users (username, email, password_hash, role_id, is_active) 
-        VALUES (
-          'admin', 
-          $1, 
-          $2, 
-          (SELECT id FROM roles WHERE name = 'System Admin' LIMIT 1),
-          TRUE
-        ) ON CONFLICT (email) DO UPDATE SET password_hash = $2, is_active = TRUE`,
-        [adminEmail, passwordHash]
-      );
-      console.log(`Initialized single dedicated admin account (${adminEmail}) successfully.`);
+      if (process.env.NODE_ENV === 'production') {
+        const initialPassword = process.env.ADMIN_INITIAL_PASSWORD;
+        if (!initialPassword || initialPassword.length < 12) {
+          throw new Error('CRITICAL SECURITY ERROR: No admin user exists in database and ADMIN_INITIAL_PASSWORD is not configured (or is shorter than 12 characters). In production, an admin account must be initialized via secure migration or with a strong ADMIN_INITIAL_PASSWORD.');
+        }
+        const bcrypt = await import('bcrypt');
+        const passwordHash = await bcrypt.hash(initialPassword, 12);
+        await pool.query(
+          `INSERT INTO users (username, email, password_hash, role_id, is_active) 
+           VALUES ('admin', $1, $2, (SELECT id FROM roles WHERE name = 'System Admin' LIMIT 1), TRUE)
+           ON CONFLICT (email) DO NOTHING`,
+          [adminEmail, passwordHash]
+        );
+        console.log(`[Security] Initialized production admin account (${adminEmail}) successfully.`);
+      } else {
+        const initialPassword = process.env.ADMIN_INITIAL_PASSWORD || process.env.DEV_ADMIN_PASSWORD;
+        let passwordToUse = initialPassword;
+        if (!passwordToUse) {
+          const crypto = await import('crypto');
+          passwordToUse = crypto.randomBytes(16).toString('hex');
+          console.warn(`[Security Warning] Non-production auto-generated temporary admin password: ${passwordToUse}`);
+        }
+        const bcrypt = await import('bcrypt');
+        const passwordHash = await bcrypt.hash(passwordToUse, 10);
+        await pool.query(
+          `INSERT INTO users (username, email, password_hash, role_id, is_active) 
+           VALUES ('admin', $1, $2, (SELECT id FROM roles WHERE name = 'System Admin' LIMIT 1), TRUE)
+           ON CONFLICT (email) DO NOTHING`,
+          [adminEmail, passwordHash]
+        );
+        console.log(`Initialized development admin account (${adminEmail}) successfully.`);
+      }
     } else {
       const adminId = adminUserRes.rows[0].id;
-      // Always update password hash to ensure admin can log in with the designated initialPassword
+      // Do not overwrite admin password hash if already set by user; ensure active status
       await pool.query(
-        "UPDATE users SET email = $1, username = 'admin', password_hash = $2, is_active = TRUE WHERE id = $3",
-        [adminEmail, passwordHash, adminId]
+        "UPDATE users SET email = $1, username = 'admin', is_active = TRUE WHERE id = $2",
+        [adminEmail, adminId]
       );
-      console.log(`Synchronized single admin account (${adminEmail}) credentials successfully.`);
+      console.log(`Verified admin account (${adminEmail}) status successfully.`);
     }
 
   } catch (error) {
@@ -547,4 +616,41 @@ CREATE TABLE IF NOT EXISTS system_settings (
   value TEXT,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS auth_sessions (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role VARCHAR(50) NOT NULL,
+  ip_address VARCHAR(100),
+  user_agent TEXT,
+  revoked BOOLEAN DEFAULT FALSE,
+  expires_at TIMESTAMP NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_user_revoked ON auth_sessions(user_id, revoked, expires_at);
+
+CREATE TABLE IF NOT EXISTS rate_limits (
+  key VARCHAR(255) PRIMARY KEY,
+  points INT NOT NULL DEFAULT 1,
+  reset_at BIGINT NOT NULL,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_rate_limits_reset ON rate_limits(reset_at);
+
+CREATE TABLE IF NOT EXISTS security_audit_logs (
+  id SERIAL PRIMARY KEY,
+  event_type VARCHAR(100) NOT NULL,
+  user_id INT REFERENCES users(id) ON DELETE SET NULL,
+  user_email VARCHAR(255),
+  ip_address VARCHAR(100),
+  user_agent TEXT,
+  action VARCHAR(255) NOT NULL,
+  resource VARCHAR(255),
+  status VARCHAR(50) NOT NULL DEFAULT 'SUCCESS',
+  details JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_audit_event_time ON security_audit_logs(event_type, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_user_time ON security_audit_logs(user_id, created_at DESC);
 `;

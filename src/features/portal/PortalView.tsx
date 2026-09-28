@@ -5,6 +5,8 @@ import { storiesService, StoryCluster } from '../../services/storiesService';
 import { NewsArticle, NewsSource } from '../../types';
 import { PaginatedResult } from '../../repositories/baseRepository';
 import { HeroNewsCard, FeaturedNewsCard, HorizontalNewsCard, CompactNewsCard, StoryClusterCard, HeroNewsSkeleton, FeaturedNewsSkeleton, HorizontalNewsSkeleton } from '../../components/news';
+import { AdSlot } from '../../components/ads/AdSlot';
+import { SEOHead } from '../../seo-engine/SEOHead';
 import { ExploreView } from './ExploreView';
 import { SavedAndHistoryView } from './SavedAndHistoryView';
 import { OnboardingModal } from './OnboardingModal';
@@ -31,7 +33,21 @@ import {
 } from 'lucide-react';
 
 export const PortalView: React.FC = () => {
-  const { activeTab: globalActiveTab, setActiveTab: setGlobalActiveTab, navigate } = useApp();
+  const { activeTab: globalActiveTab, setActiveTab: setGlobalActiveTab, navigate, categorySlug, sourceSlug, searchQuery: globalSearchQuery } = useApp();
+
+  const CATEGORY_SLUG_MAP: Record<string, string> = {
+    yemen: 'اليمن',
+    world: 'العرب والعالم',
+    politics: 'سياسة',
+    economy: 'اقتصاد',
+    tech: 'تقنية',
+    sports: 'رياضة',
+    health: 'صحة',
+    science: 'علوم',
+    culture: 'ثقافة',
+    cars: 'سيارات',
+    video: 'فيديو',
+  };
 
   const [selectedCategory, setSelectedCategory] = useState<string>('الكل');
   const [selectedCountry, setSelectedCountry] = useState<string>('جميع الدول');
@@ -42,6 +58,21 @@ export const PortalView: React.FC = () => {
   const [showAdvancedSearch, setShowAdvancedSearch] = useState<boolean>(false);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (categorySlug) {
+      const mapped = CATEGORY_SLUG_MAP[categorySlug.toLowerCase()] || decodeURIComponent(categorySlug);
+      setSelectedCategory(mapped);
+      setCurrentPage(1);
+    }
+  }, [categorySlug]);
+
+  useEffect(() => {
+    if (globalSearchQuery) {
+      setSearchQuery(globalSearchQuery);
+      setCurrentPage(1);
+    }
+  }, [globalSearchQuery]);
 
   // Followed Sources & Ticker
   const [followedSources, setFollowedSources] = useState<string[]>(['spa', 'reuters', 'saba']);
@@ -222,6 +253,11 @@ export const PortalView: React.FC = () => {
 
   return (
     <div dir="rtl" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-8 font-sans">
+      <SEOHead
+        category={categorySlug || (selectedCategory !== 'الكل' ? selectedCategory : undefined)}
+        source={sourceSlug || undefined}
+        searchQuery={searchQuery || globalSearchQuery || undefined}
+      />
       
       {/* 1. Breaking News Ticker (شريط عاجل حي) */}
       {breakingNews.length > 0 && (
@@ -374,6 +410,9 @@ export const PortalView: React.FC = () => {
         </div>
       )}
 
+      {/* Top Leaderboard Ad Slot */}
+      <AdSlot placement="top-leaderboard" />
+
       {/* 4. Story Clusters Rail (تغطيات موحدة للأحداث) */}
       {stories.length > 0 && (
         <div className="space-y-4 pt-4">
@@ -439,6 +478,9 @@ export const PortalView: React.FC = () => {
             <p className="text-xs text-slate-400 text-center py-8">تم عرض كافة الأخبار لهذا القسم</p>
           )}
 
+          {/* Bottom Feed Stream Ad Slot */}
+          <AdSlot placement="bottom-article" />
+
           {/* Pagination Controls */}
           {paginatedResult.totalPages > 1 && (
             <div className="flex items-center justify-center gap-2 pt-6">
@@ -484,6 +526,9 @@ export const PortalView: React.FC = () => {
               ))}
             </div>
           </div>
+
+          {/* Sidebar Ad Slot */}
+          <AdSlot placement="sidebar" />
 
           {/* AI Intelligence Spotlight */}
           <div className="bg-gradient-to-br from-emerald-950 via-slate-900 to-slate-950 text-white rounded-3xl p-5 border border-emerald-900/50 shadow-lg space-y-3 relative overflow-hidden">

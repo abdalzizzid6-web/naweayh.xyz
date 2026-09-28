@@ -1,6 +1,7 @@
 import React from 'react';
 import { NewsArticle } from '../../types';
 import { Clock, ShieldCheck, Bookmark, BookOpen, CheckCircle2 } from 'lucide-react';
+import { getResponsiveImageProps } from '../../utils/imageOptimizer';
 
 interface HorizontalNewsCardProps {
   article: NewsArticle;
@@ -32,9 +33,8 @@ export const HorizontalNewsCard: React.FC<HorizontalNewsCardProps> = ({
       {/* Thumbnail Frame */}
       <div className="w-24 sm:w-36 aspect-[4/3] rounded-xl overflow-hidden shrink-0 bg-slate-950 relative">
         <img
-          src={article.mainImage || DEFAULT_NEWS_IMAGE}
+          {...getResponsiveImageProps(article.mainImage, { width: 300, height: 225, isPriority: false })}
           alt={article.title}
-          loading="lazy"
           onError={(e) => {
             e.currentTarget.src = DEFAULT_NEWS_IMAGE;
           }}

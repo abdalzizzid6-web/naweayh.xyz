@@ -16,15 +16,17 @@ export const AIEntityExtractionModule: React.FC = () => {
   const [isExtracting, setIsExtracting] = useState<boolean>(false);
   const [extractionResult, setExtractionResult] = useState<AIPipelineResult | null>(null);
   const [savedStatus, setSavedStatus] = useState<boolean>(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const handleRunExtraction = async () => {
     setIsExtracting(true);
     setSavedStatus(false);
+    setErrorMessage(null);
     try {
       const result = await aiEngineService.processArticleWithAI(inputTitle, inputText, sourceName);
       setExtractionResult(result);
-    } catch (error) {
-      console.error('Extraction error:', error);
+    } catch (error: any) {
+      setErrorMessage(error?.message || 'فشلت عملية التحليل واستخراج الكيانات');
     } finally {
       setIsExtracting(false);
     }
@@ -102,6 +104,12 @@ export const AIEntityExtractionModule: React.FC = () => {
             placeholder="الصق نص الخبر هنا..."
           />
         </div>
+
+        {errorMessage && (
+          <div className="mt-3 p-3 bg-red-950/60 border border-red-800 text-red-300 rounded-xl text-xs font-semibold">
+            {errorMessage}
+          </div>
+        )}
 
         <div className="flex items-center justify-between mt-5 pt-4 border-t border-slate-800/80">
           <div className="flex items-center gap-2 text-xs text-slate-400">

@@ -1,6 +1,7 @@
 import React from 'react';
 import { NewsArticle } from '../../types';
 import { Badge } from '../ui/Badge';
+import { getResponsiveImageProps } from '../../utils/imageOptimizer';
 import {
   Clock,
   Eye,
@@ -48,9 +49,8 @@ export const HeroNewsCard: React.FC<HeroNewsCardProps> = ({
       {/* Visual Image Section */}
       <div className="lg:w-7/12 relative aspect-[16/10] lg:aspect-auto overflow-hidden bg-slate-950">
         <img
-          src={article.mainImage || DEFAULT_NEWS_IMAGE}
+          {...getResponsiveImageProps(article.mainImage, { width: 800, height: 500, isPriority: true })}
           alt={article.title}
-          loading="lazy"
           onError={(e) => {
             e.currentTarget.src = DEFAULT_NEWS_IMAGE;
           }}

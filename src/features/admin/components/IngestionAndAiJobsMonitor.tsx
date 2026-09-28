@@ -56,9 +56,8 @@ export const IngestionAndAiJobsMonitor: React.FC<IngestionAndAiJobsMonitorProps>
   const fetchRealAiJobs = async () => {
     setIsLoadingAiJobs(true);
     try {
-      const token = localStorage.getItem('adminToken') || '';
       const res = await fetch('/api/v1/admin/ai-jobs', {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: 'include',
       });
       if (res.ok) {
         const json = await res.json();
@@ -115,10 +114,9 @@ export const IngestionAndAiJobsMonitor: React.FC<IngestionAndAiJobsMonitorProps>
   const handleRetryAiJob = async (jobId: number) => {
     setRetryingJobId(jobId);
     try {
-      const token = localStorage.getItem('adminToken') || '';
       const res = await fetch(`/api/v1/admin/ai-jobs/${jobId}/retry`, {
         method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: 'include',
       });
       if (res.ok) {
         triggerToast('تمت إعادة جدولة المهمة بنجاح.');

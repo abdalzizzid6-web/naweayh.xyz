@@ -1,0 +1,3 @@
+# Ads.txt for Naw3iya News (https://naweayh.xyz)
+# Official Publisher Authorized Digital Sellers
+google.com, pub-7294820194820194, DIRECT, f08c47fec0942fa0

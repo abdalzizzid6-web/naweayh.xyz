@@ -8,6 +8,8 @@ interface SEOHeadProps {
   source?: string;
   searchQuery?: string;
   is404?: boolean;
+  staticPage?: 'privacy' | 'terms' | 'about' | 'contact' | 'editorial' | 'cookies' | 'corrections' | 'advertising';
+  story?: { title: string; summary: string; slug: string; imageUrl?: string };
 }
 
 export const SEOHead: React.FC<SEOHeadProps> = ({
@@ -16,6 +18,8 @@ export const SEOHead: React.FC<SEOHeadProps> = ({
   source,
   searchQuery,
   is404,
+  staticPage,
+  story,
 }) => {
   useEffect(() => {
     let metaTags: SEOMetaOutput;
@@ -23,6 +27,14 @@ export const SEOHead: React.FC<SEOHeadProps> = ({
 
     if (is404) {
       metaTags = seoEngineService.generate404MetaTags();
+    } else if (staticPage) {
+      metaTags = seoEngineService.generateStaticPageMetaTags(staticPage);
+      schemas.push(seoEngineService.generateWebSiteSchema());
+      schemas.push(seoEngineService.generateOrganizationSchema());
+    } else if (story) {
+      metaTags = seoEngineService.generateStoryMetaTags(story.title, story.summary, story.slug, story.imageUrl);
+      schemas.push(seoEngineService.generateWebSiteSchema());
+      schemas.push(seoEngineService.generateOrganizationSchema());
     } else if (article) {
       metaTags = seoEngineService.generateMetaTags(article);
       schemas.push(seoEngineService.generateNewsArticleSchema(article));

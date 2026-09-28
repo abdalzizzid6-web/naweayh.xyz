@@ -37,6 +37,7 @@ interface AppContextType {
   categorySlug: string | null;
   sourceSlug: string | null;
   searchQuery: string | null;
+  staticPageRoute: 'privacy' | 'terms' | 'about' | 'contact' | 'editorial' | 'cookies' | 'corrections' | 'advertising' | null;
   isNotFound: boolean;
   currentUser: UserProfile | null;
   setCurrentUser: React.Dispatch<React.SetStateAction<UserProfile | null>>;
@@ -59,6 +60,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [categorySlug, setCategorySlug] = useState<string | null>(null);
   const [sourceSlug, setSourceSlug] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
+  const [staticPageRoute, setStaticPageRoute] = useState<'privacy' | 'terms' | 'about' | 'contact' | 'editorial' | null>(null);
   const [isNotFound, setIsNotFound] = useState<boolean>(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -89,8 +91,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCategorySlug(null);
     setSourceSlug(null);
     setSearchQuery(null);
+    setStaticPageRoute(null);
 
-    if (pathname.startsWith('/news/')) {
+    if (pathname === '/privacy-policy') {
+      setStaticPageRoute('privacy');
+      setActiveTabState('portal');
+    } else if (pathname === '/terms') {
+      setStaticPageRoute('terms');
+      setActiveTabState('portal');
+    } else if (pathname === '/about') {
+      setStaticPageRoute('about');
+      setActiveTabState('portal');
+    } else if (pathname === '/contact') {
+      setStaticPageRoute('contact');
+      setActiveTabState('portal');
+    } else if (pathname === '/editorial-guidelines' || pathname === '/editorial-policy') {
+      setStaticPageRoute('editorial');
+      setActiveTabState('portal');
+    } else if (pathname === '/cookie-policy') {
+      setStaticPageRoute('cookies');
+      setActiveTabState('portal');
+    } else if (pathname === '/corrections') {
+      setStaticPageRoute('corrections');
+      setActiveTabState('portal');
+    } else if (pathname === '/advertising-policy') {
+      setStaticPageRoute('advertising');
+      setActiveTabState('portal');
+    } else if (pathname.startsWith('/news/')) {
       const slug = decodeURIComponent(pathname.replace('/news/', '').split('/')[0]);
       setArticleSlug(slug || null);
       setActiveTabState('portal');
@@ -218,6 +245,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         categorySlug,
         sourceSlug,
         searchQuery,
+        staticPageRoute,
         isNotFound,
         currentUser,
         setCurrentUser,

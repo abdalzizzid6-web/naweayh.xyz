@@ -1,7 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { pool } from '../db/connection';
 import { requireAdminAuth } from './authRouter';
-import { httpClientService } from '../services/HttpClientService';
+import { CryptoService } from '../services/CryptoService';
+import { SecurityAuditService } from '../services/SecurityAuditService';
 
 export const socialRouter = Router();
 
@@ -39,8 +40,8 @@ const DEFAULT_PLATFORMS: SocialPlatformConfig[] = [
     autoPublish: true,
     connected: false,
     credentials: {
-      botToken: '',
-      chatId: '@naweayh_news',
+      botToken: process.env.TELEGRAM_BOT_TOKEN || '',
+      chatId: process.env.TELEGRAM_CHAT_ID || '@naweayh_news',
     },
   },
   {
@@ -51,8 +52,8 @@ const DEFAULT_PLATFORMS: SocialPlatformConfig[] = [
     autoPublish: true,
     connected: false,
     credentials: {
-      pageId: '',
-      accessToken: '',
+      pageId: process.env.FACEBOOK_PAGE_ID || '',
+      accessToken: process.env.FACEBOOK_ACCESS_TOKEN || '',
     },
   },
   {
@@ -63,8 +64,8 @@ const DEFAULT_PLATFORMS: SocialPlatformConfig[] = [
     autoPublish: false,
     connected: false,
     credentials: {
-      apiKey: '',
-      bearerToken: '',
+      apiKey: process.env.TWITTER_API_KEY || '',
+      bearerToken: process.env.TWITTER_BEARER_TOKEN || '',
     },
   },
   {
@@ -75,8 +76,8 @@ const DEFAULT_PLATFORMS: SocialPlatformConfig[] = [
     autoPublish: true,
     connected: false,
     credentials: {
-      phoneNumberId: '',
-      accessToken: '',
+      phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || '',
+      accessToken: process.env.WHATSAPP_ACCESS_TOKEN || '',
     },
   },
   {
@@ -87,8 +88,8 @@ const DEFAULT_PLATFORMS: SocialPlatformConfig[] = [
     autoPublish: false,
     connected: false,
     credentials: {
-      igUserId: '',
-      accessToken: '',
+      igUserId: process.env.INSTAGRAM_USER_ID || '',
+      accessToken: process.env.INSTAGRAM_ACCESS_TOKEN || '',
     },
   },
 ];
@@ -124,27 +125,40 @@ async function ensureSocialTables() {
   `);
 }
 
-// GET /api/v1/social/platforms - Retrieve configured platforms
+function sanitizePlatformRow(row: any): any {
+  let decryptedCreds: Record<string, any> = {};
+  if (row.credentials) {
+    decryptedCreds = CryptoService.decryptObject(row.credentials);
+  }
+  const redactedCreds = CryptoService.redactCredentials(decryptedCreds);
+  return {
+    ...row,
+    credentials: redactedCreds,
+  };
+}
+
+// GET /api/v1/social/platforms - Retrieve configured platforms (credentials redacted)
 socialRouter.get('/v1/social/platforms', requireAdminAuth, async (_req: Request, res: Response) => {
   try {
     await ensureSocialTables();
     const result = await pool.query(`SELECT * FROM social_platforms ORDER BY id ASC`);
     
     if (result.rows.length === 0) {
-      // Seed default platforms
+      // Seed default platforms with encrypted credentials
       for (const p of DEFAULT_PLATFORMS) {
+        const encrypted = CryptoService.encryptObject(p.credentials);
         await pool.query(
           `INSERT INTO social_platforms (id, name, type, enabled, auto_publish, connected, credentials, last_synced_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
            ON CONFLICT (id) DO NOTHING`,
-          [p.id, p.name, p.type, p.enabled, p.autoPublish, p.connected, JSON.stringify(p.credentials)]
+          [p.id, p.name, p.type, p.enabled, p.autoPublish, p.connected, JSON.stringify({ payload: encrypted })]
         );
       }
       const seeded = await pool.query(`SELECT * FROM social_platforms ORDER BY id ASC`);
-      return res.json({ success: true, data: seeded.rows });
+      return res.json({ success: true, data: seeded.rows.map(sanitizePlatformRow) });
     }
 
-    res.json({ success: true, data: result.rows });
+    res.json({ success: true, data: result.rows.map(sanitizePlatformRow) });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -154,17 +168,18 @@ socialRouter.get('/v1/social/platforms', requireAdminAuth, async (_req: Request,
 socialRouter.post('/v1/social/platforms/quick-connect-all', requireAdminAuth, async (req: Request, res: Response) => {
   try {
     await ensureSocialTables();
-    const { autoPublish = true, mockMode = false } = req.body;
+    const { autoPublish = true } = req.body;
 
     const quickProfiles = [
-      { id: 'tg', name: 'قناة التليجرام الإخبارية (Telegram Channel)', type: 'Telegram', account: '@naweayh_news', creds: { botToken: 'tg_bot_token_active', chatId: '@naweayh_news' } },
-      { id: 'fb', name: 'صفحة فيسبوك الرسمية (Facebook Page)', type: 'Facebook', account: 'Naw3iya Official News', creds: { pageId: '109847291029', accessToken: 'fb_page_access_token_active' } },
-      { id: 'x', name: 'منصة إكس / تويتر (X / Twitter)', type: 'X', account: '@naweayh_xyz', creds: { apiKey: 'x_api_key_active', bearerToken: 'x_bearer_token_active' } },
-      { id: 'wa', name: 'قناة واتساب الإخبارية (WhatsApp Channels)', type: 'WhatsApp', account: 'Naw3iya News Channel', creds: { phoneNumberId: '967770000000', accessToken: 'wa_meta_token_active' } },
-      { id: 'ig', name: 'إنستغرام الأعمال (Instagram Business)', type: 'Instagram', account: '@naweayh_official', creds: { igUserId: '178414000000', accessToken: 'ig_access_token_active' } }
+      { id: 'tg', name: 'قناة التليجرام الإخبارية (Telegram Channel)', type: 'Telegram', account: '@naweayh_news', creds: { botToken: process.env.TELEGRAM_BOT_TOKEN || '', chatId: '@naweayh_news' } },
+      { id: 'fb', name: 'صفحة فيسبوك الرسمية (Facebook Page)', type: 'Facebook', account: 'Naw3iya Official News', creds: { pageId: process.env.FACEBOOK_PAGE_ID || '', accessToken: process.env.FACEBOOK_ACCESS_TOKEN || '' } },
+      { id: 'x', name: 'منصة إكس / تويتر (X / Twitter)', type: 'X', account: '@naweayh_xyz', creds: { apiKey: process.env.TWITTER_API_KEY || '', bearerToken: process.env.TWITTER_BEARER_TOKEN || '' } },
+      { id: 'wa', name: 'قناة واتساب الإخبارية (WhatsApp Channels)', type: 'WhatsApp', account: 'Naw3iya News Channel', creds: { phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || '', accessToken: process.env.WHATSAPP_ACCESS_TOKEN || '' } },
+      { id: 'ig', name: 'إنستغرام الأعمال (Instagram Business)', type: 'Instagram', account: '@naweayh_official', creds: { igUserId: process.env.INSTAGRAM_USER_ID || '', accessToken: process.env.INSTAGRAM_ACCESS_TOKEN || '' } }
     ];
 
     for (const p of quickProfiles) {
+      const encrypted = CryptoService.encryptObject(p.creds);
       await pool.query(`
         INSERT INTO social_platforms (id, name, type, enabled, auto_publish, connected, account_name, credentials, last_synced_at, last_error, updated_at)
         VALUES ($1, $2, $3, TRUE, $4, TRUE, $5, $6, NOW(), NULL, NOW())
@@ -177,14 +192,16 @@ socialRouter.post('/v1/social/platforms/quick-connect-all', requireAdminAuth, as
           last_synced_at = NOW(),
           last_error = NULL,
           updated_at = NOW()
-      `, [p.id, p.name, p.type, autoPublish, p.account, JSON.stringify(p.creds)]);
+      `, [p.id, p.name, p.type, autoPublish, p.account, JSON.stringify({ payload: encrypted })]);
     }
+
+    await SecurityAuditService.logFromRequest(req, 'social_connection', 'Quick-connected all social platform integrations', 'SUCCESS');
 
     const updated = await pool.query(`SELECT * FROM social_platforms ORDER BY id ASC`);
     res.json({
       success: true,
       message: 'تم تفعيل وربط جميع صفحات وحسابات التواصل الاجتماعي بنجاح بضغطة زر واحدة!',
-      data: updated.rows,
+      data: updated.rows.map(sanitizePlatformRow),
     });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
@@ -199,6 +216,11 @@ socialRouter.post('/v1/social/platforms/:id/toggle', requireAdminAuth, async (re
     const { field, value, credentials, account_name } = req.body;
 
     if (field === 'connected') {
+      let encryptedPayload: string | null = null;
+      if (credentials) {
+        encryptedPayload = JSON.stringify({ payload: CryptoService.encryptObject(credentials) });
+      }
+
       await pool.query(
         `UPDATE social_platforms 
          SET connected = $1, 
@@ -208,8 +230,9 @@ socialRouter.post('/v1/social/platforms/:id/toggle', requireAdminAuth, async (re
              credentials = COALESCE($3, credentials),
              updated_at = NOW() 
          WHERE id = $4`,
-        [value, account_name || null, credentials ? JSON.stringify(credentials) : null, id]
+        [value, account_name || null, encryptedPayload, id]
       );
+      await SecurityAuditService.logFromRequest(req, 'social_connection', `Platform ${id} connection state toggled to ${value}`, 'SUCCESS', { resource: id });
     } else if (field === 'auto_publish') {
       await pool.query(
         `UPDATE social_platforms SET auto_publish = $1, updated_at = NOW() WHERE id = $2`,
@@ -223,7 +246,7 @@ socialRouter.post('/v1/social/platforms/:id/toggle', requireAdminAuth, async (re
     }
 
     const resItem = await pool.query(`SELECT * FROM social_platforms WHERE id = $1`, [id]);
-    res.json({ success: true, data: resItem.rows[0] });
+    res.json({ success: true, data: resItem.rows[0] ? sanitizePlatformRow(resItem.rows[0]) : null });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -235,7 +258,6 @@ socialRouter.post('/v1/social/publish-article', requireAdminAuth, async (req: Re
     await ensureSocialTables();
     const { articleId, customTexts } = req.body;
 
-    // Fetch article by numeric ID or slug or source_url
     let artRes;
     const isNum = !isNaN(Number(articleId));
     if (isNum) {
@@ -245,7 +267,6 @@ socialRouter.post('/v1/social/publish-article', requireAdminAuth, async (req: Re
     }
 
     if (!artRes || artRes.rows.length === 0) {
-      // Fallback: pick latest article if specific ID not found
       artRes = await pool.query(`SELECT * FROM news_articles ORDER BY published_at DESC LIMIT 1`);
     }
 
@@ -254,7 +275,6 @@ socialRouter.post('/v1/social/publish-article', requireAdminAuth, async (req: Re
     }
     const article = artRes.rows[0];
 
-    // Fetch active connected platforms
     const platRes = await pool.query(`SELECT * FROM social_platforms WHERE connected = TRUE AND enabled = TRUE`);
     const activePlatforms = platRes.rows;
 
@@ -287,13 +307,19 @@ socialRouter.post('/v1/social/publish-article', requireAdminAuth, async (req: Re
         }
       }
 
-      // Log the publish event
+      // Log the publish event in social_posts_log
       const logRes = await pool.query(
         `INSERT INTO social_posts_log (article_id, platform_id, platform_name, post_text, post_url, status)
          VALUES ($1, $2, $3, $4, $5, 'SUCCESS')
          RETURNING *`,
         [article.id, plat.id, plat.name, postText, articleUrl]
       );
+
+      // Audit log the publishing event
+      await SecurityAuditService.logFromRequest(req, 'social_publishing', `Published article ${article.id} to ${plat.name}`, 'SUCCESS', {
+        resource: String(article.id),
+        details: { platformId: plat.id, platformType: plat.type },
+      });
 
       // Increment shares count
       await pool.query(`UPDATE news_articles SET shares_count = shares_count + 1 WHERE id = $1`, [article.id]);

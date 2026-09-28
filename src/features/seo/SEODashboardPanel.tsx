@@ -73,8 +73,6 @@ export const SEODashboardPanel: React.FC = () => {
         return seoEngineService.generateSourcesSitemapXML();
       case 'IMAGE_SITEMAP':
         return seoEngineService.generateImageSitemapXML();
-      case 'VIDEO_SITEMAP':
-        return seoEngineService.generateVideoSitemapXML();
       case 'RSS':
         return seoEngineService.generateRSSFeedXML();
       case 'ROBOTS':
@@ -371,16 +369,6 @@ export const SEODashboardPanel: React.FC = () => {
               }`}
             >
               sitemap-images.xml (الصور)
-            </button>
-            <button
-              onClick={() => setActiveXmlType('VIDEO_SITEMAP')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 ${
-                activeXmlType === 'VIDEO_SITEMAP'
-                  ? 'bg-indigo-600 text-white'
-                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-              }`}
-            >
-              sitemap-videos.xml (الفيديو)
             </button>
             <button
               onClick={() => setActiveXmlType('RSS')}

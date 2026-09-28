@@ -1,3 +1,5 @@
+import { SafeUrlService } from './SafeUrlService';
+
 export interface HttpRequestOptions {
   headers?: Record<string, string>;
   timeoutMs?: number;
@@ -28,6 +30,7 @@ const USER_AGENTS = [
 ];
 
 const MAX_DEFAULT_BODY_SIZE = 2.5 * 1024 * 1024; // 2.5 MB
+const MAX_REDIRECTS = 5;
 
 export class HttpClientService {
   private lastRequestTimes: Map<string, number> = new Map();
@@ -53,18 +56,25 @@ export class HttpClientService {
   }
 
   /**
-   * Production-Grade HTTP Client with SSRF Guards, Timeouts, Retries & Size Caps
+   * Production-Grade HTTP Client with SSRF Guards, Timeouts, Retries, Size Caps & Redirect Validation
    */
-  public async fetchWithRetry(url: string, options: HttpRequestOptions = {}): Promise<HttpResponseResult> {
+  public async fetchWithRetry(initialUrl: string, options: HttpRequestOptions = {}): Promise<HttpResponseResult> {
     const {
       timeoutMs = 7000,
       retryAttempts = 1,
       retryDelayMs = 800,
       headers = {},
       maxResponseSizeBytes = MAX_DEFAULT_BODY_SIZE,
+      maxRedirects = MAX_REDIRECTS,
     } = options;
 
-    await this.enforceRateLimit(url);
+    // 1. SSRF Pre-validation on Initial URL (Syntax + Private IP + Localhost + Metadata)
+    const initialSafety = await SafeUrlService.verifyDnsAndIpSafety(initialUrl);
+    if (!initialSafety.safe) {
+      throw new Error(`SSRF Blocked: ${initialSafety.reason || 'Forbidden destination'}`);
+    }
+
+    await this.enforceRateLimit(initialUrl);
 
     let lastError: Error | null = null;
 
@@ -75,66 +85,95 @@ export class HttpClientService {
 
       try {
         const startTime = Date.now();
-        const method = options.method || (options.body ? 'POST' : 'GET');
-        const browserHeaders: Record<string, string> = {
-          'User-Agent': this.getRandomUserAgent(),
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,application/rss+xml,application/atom+xml,application/json;q=0.8,*/*;q=0.7',
-          'Accept-Language': 'ar,en-US;q=0.9,en;q=0.8',
-          ...headers,
-        };
+        let currentUrl = initialUrl;
+        let redirectCount = 0;
+        let isRedirected = false;
 
-        if (options.body && !browserHeaders['Content-Type'] && !browserHeaders['content-type']) {
-          browserHeaders['Content-Type'] = 'application/json';
+        while (true) {
+          const method = options.method || (options.body ? 'POST' : 'GET');
+          const browserHeaders: Record<string, string> = {
+            'User-Agent': this.getRandomUserAgent(),
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,application/rss+xml,application/atom+xml,application/json;q=0.8,*/*;q=0.7',
+            'Accept-Language': 'ar,en-US;q=0.9,en;q=0.8',
+            ...headers,
+          };
+
+          if (options.body && !browserHeaders['Content-Type'] && !browserHeaders['content-type']) {
+            browserHeaders['Content-Type'] = 'application/json';
+          }
+
+          // Use manual redirect handling to inspect and re-verify each redirect step against SSRF
+          const res = await fetch(currentUrl, {
+            method,
+            headers: browserHeaders,
+            body: redirectCount === 0 ? options.body : undefined,
+            redirect: 'manual',
+            signal: AbortSignal.timeout(timeoutMs),
+          });
+
+          // Check if response is a redirect (301, 302, 303, 307, 308)
+          if (res.status >= 300 && res.status < 400 && res.headers.has('location')) {
+            redirectCount++;
+            if (redirectCount > maxRedirects) {
+              throw new Error(`Too many redirects (exceeded ${maxRedirects})`);
+            }
+
+            const locationHeader = res.headers.get('location')!;
+            const resolvedRedirectUrl = new URL(locationHeader, currentUrl).toString();
+
+            // Re-verify redirect destination for SSRF (DNS lookup, private IP, metadata, loopback)
+            const redirectSafety = await SafeUrlService.verifyDnsAndIpSafety(resolvedRedirectUrl);
+            if (!redirectSafety.safe) {
+              throw new Error(`SSRF Blocked Redirect: Destination ${resolvedRedirectUrl} is forbidden (${redirectSafety.reason})`);
+            }
+
+            currentUrl = resolvedRedirectUrl;
+            isRedirected = true;
+            await this.enforceRateLimit(currentUrl, 200);
+            continue; // Follow redirect
+          }
+
+          const contentType = (res.headers.get('content-type') || '').toLowerCase();
+          
+          // Reject binary executable/zip/video/audio downloads
+          if (
+            contentType.includes('application/octet-stream') ||
+            contentType.includes('application/zip') ||
+            contentType.includes('application/x-') ||
+            contentType.includes('video/') ||
+            contentType.includes('audio/')
+          ) {
+            throw new Error(`Rejected invalid content-type: ${contentType}`);
+          }
+
+          // Check Content-Length header if provided
+          const contentLength = parseInt(res.headers.get('content-length') || '0', 10);
+          if (contentLength > maxResponseSizeBytes) {
+            throw new Error(`Response size exceeds limit (${contentLength} > ${maxResponseSizeBytes} bytes)`);
+          }
+
+          let body = await res.text();
+          if (body.length > maxResponseSizeBytes) {
+            body = body.slice(0, maxResponseSizeBytes);
+          }
+
+          const responseTimeMs = Date.now() - startTime;
+          const resHeaders: Record<string, string> = {};
+          res.headers.forEach((v, k) => {
+            resHeaders[k.toLowerCase()] = v;
+          });
+
+          return {
+            statusCode: res.status,
+            statusText: res.statusText,
+            ok: res.ok,
+            body,
+            finalUrl: currentUrl,
+            redirected: isRedirected,
+            responseTimeMs,
+            headers: resHeaders,
+          };
         }
-
-        const res = await fetch(url, {
-          method,
-          headers: browserHeaders,
-          body: options.body,
-          redirect: 'follow',
-          signal: AbortSignal.timeout(timeoutMs),
-        });
-
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        
-        // Reject binary executable/zip/video/audio downloads
-        if (
-          contentType.includes('application/octet-stream') ||
-          contentType.includes('application/zip') ||
-          contentType.includes('application/x-') ||
-          contentType.includes('video/') ||
-          contentType.includes('audio/')
-        ) {
-          throw new Error(`Rejected invalid content-type: ${contentType}`);
-        }
-
-        // Check Content-Length header if provided
-        const contentLength = parseInt(res.headers.get('content-length') || '0', 10);
-        if (contentLength > maxResponseSizeBytes) {
-          throw new Error(`Response size exceeds limit (${contentLength} > ${maxResponseSizeBytes} bytes)`);
-        }
-
-        let body = await res.text();
-        if (body.length > maxResponseSizeBytes) {
-          body = body.slice(0, maxResponseSizeBytes);
-        }
-
-        const responseTimeMs = Date.now() - startTime;
-        const resHeaders: Record<string, string> = {};
-        res.headers.forEach((v, k) => {
-          resHeaders[k.toLowerCase()] = v;
-        });
-
-        return {
-          statusCode: res.status,
-          statusText: res.statusText,
-          ok: res.ok,
-          body,
-          finalUrl: res.url || url,
-          redirected: res.redirected,
-          responseTimeMs,
-          headers: resHeaders,
-        };
       } catch (err: any) {
         lastError = err;
         const isTransient =
@@ -145,12 +184,12 @@ export class HttpClientService {
           err.message?.includes('aborted');
 
         if (!isTransient) {
-          break; // Don't retry fatal/rejected errors
+          break; // Don't retry fatal/rejected SSRF errors
         }
       }
     }
 
-    throw lastError || new Error(`Failed to fetch ${url} after ${retryAttempts} attempts`);
+    throw lastError || new Error(`Failed to fetch ${initialUrl} after ${retryAttempts} attempts`);
   }
 }
 

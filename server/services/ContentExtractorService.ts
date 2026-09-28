@@ -1,4 +1,6 @@
+import sanitizeHtmlLibrary from 'sanitize-html';
 import { httpClientService } from './HttpClientService';
+import { SafeUrlService } from './SafeUrlService';
 
 export type ContentClassification = 
   | 'FULL_PERMITTED_CONTENT' 
@@ -44,87 +46,8 @@ export class ContentExtractorService {
    * Blocks localhost, private IP ranges (RFC1918), loopback, link-local, cloud metadata, and non-http schemes.
    */
   public isUrlSafeForExtraction(targetUrl: string): boolean {
-    try {
-      if (!targetUrl || typeof targetUrl !== 'string') return false;
-      const trimmed = targetUrl.trim();
-      if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
-        return false;
-      }
-
-      const parsed = new URL(trimmed);
-      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-        return false;
-      }
-
-      // Check port (standard web ports only)
-      if (parsed.port && parsed.port !== '80' && parsed.port !== '443' && parsed.port !== '8080') {
-        return false;
-      }
-
-      const hostname = parsed.hostname.toLowerCase().trim();
-
-      // Block local/internal hostnames
-      if (
-        hostname === 'localhost' ||
-        hostname === '127.0.0.1' ||
-        hostname === '0.0.0.0' ||
-        hostname === '::1' ||
-        hostname === '[::1]' ||
-        hostname === '0' ||
-        hostname.endsWith('.local') ||
-        hostname.endsWith('.internal') ||
-        hostname.endsWith('.localhost') ||
-        hostname.endsWith('.lan') ||
-        hostname.endsWith('.corp') ||
-        hostname.endsWith('.test') ||
-        hostname.endsWith('.example') ||
-        hostname.endsWith('.invalid')
-      ) {
-        return false;
-      }
-
-      // Block cloud metadata endpoints
-      if (
-        hostname === '169.254.169.254' ||
-        hostname === 'metadata.google.internal' ||
-        hostname === 'metadata.goog' ||
-        hostname === '100.100.100.200'
-      ) {
-        return false;
-      }
-
-      // Block private IPv4 ranges
-      const ipv4Match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-      if (ipv4Match) {
-        const octets = ipv4Match.slice(1).map(Number);
-        const [o1, o2, o3, o4] = octets;
-
-        if (octets.some((o) => isNaN(o) || o < 0 || o > 255)) return false;
-
-        // 10.0.0.0/8 (Private network)
-        if (o1 === 10) return false;
-        // 172.16.0.0/12 (Private network)
-        if (o1 === 172 && o2 >= 16 && o2 <= 31) return false;
-        // 192.168.0.0/16 (Private network)
-        if (o1 === 192 && o2 === 168) return false;
-        // 169.254.0.0/16 (Link-local / Cloud metadata)
-        if (o1 === 169 && o2 === 254) return false;
-        // 127.0.0.0/8 (Loopback)
-        if (o1 === 127) return false;
-        // 0.0.0.0/8
-        if (o1 === 0) return false;
-        // 100.64.0.0/10 (Shared address space / Carrier-grade NAT)
-        if (o1 === 100 && o2 >= 64 && o2 <= 127) return false;
-        // 198.18.0.0/15 (Network benchmark tests)
-        if (o1 === 198 && (o2 === 18 || o2 === 19)) return false;
-        // Broadcast
-        if (o1 === 255 && o2 === 255 && o3 === 255 && o4 === 255) return false;
-      }
-
-      return true;
-    } catch {
-      return false;
-    }
+    const syntax = SafeUrlService.isSyntacticallySafe(targetUrl);
+    return syntax.safe;
   }
 
   /**
@@ -132,33 +55,42 @@ export class ContentExtractorService {
    * Strips scripts, styles, iframes, forms, event handlers while preserving safe headings, paragraphs, and blockquotes.
    */
   public sanitizeHtml(rawHtml: string): string {
-    if (!rawHtml) return '';
+    if (!rawHtml || typeof rawHtml !== 'string') return '';
 
-    return rawHtml
-      // Clean CDATA wrappers
-      .replace(/<!\[CDATA\[/gi, '')
-      .replace(/\]\]>/gi, '')
-      // Strip dangerous tags completely
-      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-      .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
-      .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
-      .replace(/<form\b[^<]*(?:(?!<\/form>)<[^<]*)*<\/form>/gi, '')
-      .replace(/<input\b[^>]*>/gi, '')
-      .replace(/<button\b[^<]*(?:(?!<\/button>)<[^<]*)*<\/button>/gi, '')
-      .replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gi, '')
-      .replace(/<meta\b[^>]*>/gi, '')
-      .replace(/<link\b[^>]*>/gi, '')
-      .replace(/<noscript\b[^<]*(?:(?!<\/noscript>)<[^<]*)*<\/noscript>/gi, '')
-      // Remove inline style, onclick, onload, etc.
-      .replace(/\s*style="[^"]*"/gi, '')
-      .replace(/\s*on\w+="[^"]*"/gi, '')
-      .replace(/\s*id="[^"]*"/gi, '')
-      // Remove malicious href/src protocols
-      .replace(/\s*href="javascript:[^"]*"/gi, ' href="#"')
-      .replace(/\s*src="javascript:[^"]*"/gi, ' src=""')
-      // Remove ads and widget containers
-      .replace(/<div[^>]*(?:class="[^"]*(?:ad|banner|sponsor|share|social|widget|comment|footer|nav|sidebar)[^"]*")[^>]*>[\s\S]*?<\/div>/gi, '')
-      .trim();
+    // First clean CDATA markers
+    const withoutCdata = rawHtml.replace(/<!\[CDATA\[/gi, '').replace(/\]\]>/gi, '');
+
+    // Professional HTML sanitization with strict allowlist
+    const cleaned = sanitizeHtmlLibrary(withoutCdata, {
+      allowedTags: [
+        'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+        'p', 'b', 'i', 'strong', 'em', 'strike', 'code', 'hr', 'br',
+        'ul', 'ol', 'li', 'blockquote',
+        'a', 'img', 'span', 'figure', 'figcaption'
+      ],
+      allowedAttributes: {
+        'a': ['href', 'title', 'target', 'rel'],
+        'img': ['src', 'alt', 'title', 'width', 'height', 'loading'],
+        '*': ['dir', 'lang']
+      },
+      allowedSchemes: ['http', 'https', 'mailto'],
+      allowedSchemesAppliedToAttributes: ['href', 'src'],
+      allowProtocolRelative: false,
+      transformTags: {
+        'a': (tagName, attribs) => {
+          return {
+            tagName,
+            attribs: {
+              ...attribs,
+              rel: 'noopener noreferrer nofollow',
+              target: '_blank'
+            }
+          };
+        }
+      }
+    });
+
+    return cleaned.trim();
   }
 
   /**

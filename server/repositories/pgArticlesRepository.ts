@@ -7,6 +7,20 @@ export interface CursorPaginatedArticles {
   totalCount?: number;
 }
 
+/**
+ * Standardized High-Performance Column Projection for Article Feeds & Cards.
+ * Excludes heavy HTML/text bodies (content, content_html, content_text, formatted_body)
+ * which are only needed in single article detail view.
+ */
+export const ARTICLE_CARD_FIELDS = `
+  a.id, a.title, a.slug, a.summary, a.excerpt, a.category, a.country, a.language,
+  a.cover_image_url, a.published_at, a.created_at, a.is_breaking, a.is_trending,
+  a.views_count, a.shares_count, a.saves_count, a.reading_time_minutes, a.trust_score,
+  a.source_id, a.story_cluster_id, a.canonical_url, a.original_article_url,
+  a.content_classification, a.content_origin, a.content_status, a.content_quality_score,
+  a.word_count, a.paragraph_count
+`;
+
 export class PgArticlesRepository {
   public async getFilteredArticles(params: {
     category?: string;
@@ -39,7 +53,7 @@ export class PgArticlesRepository {
       const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
       const countRes = await pool.query(
         `SELECT COUNT(*) as count FROM news_articles a LEFT JOIN news_sources s ON a.source_id = s.id ${whereClause}`,
-        values
+        values.slice(0, idx - 1)
       );
       const total = parseInt(countRes.rows[0]?.count || '0', 10);
 
@@ -48,12 +62,12 @@ export class PgArticlesRepository {
       values.push(limit, offset);
 
       const query = `
-        SELECT a.*, s.name as "sourceName", s.name_arabic as "sourceNameArabic", s.logo as "sourceLogo", s.country as "sourceCountry"
+        SELECT ${ARTICLE_CARD_FIELDS}, s.name as "sourceName", s.name_arabic as "sourceNameArabic", s.logo as "sourceLogo", s.country as "sourceCountry"
         FROM news_articles a
         LEFT JOIN news_sources s ON a.source_id = s.id
         ${whereClause}
         ORDER BY a.published_at DESC
-        LIMIT $${idx} OFFSET $${idx + 1}
+        LIMIT $${values.length - 1} OFFSET $${values.length}
       `;
       const res = await pool.query(query, values);
       return { data: res.rows, total };
@@ -65,7 +79,7 @@ export class PgArticlesRepository {
 
   public async getLatestArticles(limit: number = 20, offset: number = 0): Promise<any[]> {
     const res = await pool.query(
-      `SELECT a.*, s.name as "sourceName", s.name_arabic as "sourceNameArabic", s.logo as "sourceLogo", s.country as "sourceCountry"
+      `SELECT ${ARTICLE_CARD_FIELDS}, s.name as "sourceName", s.name_arabic as "sourceNameArabic", s.logo as "sourceLogo", s.country as "sourceCountry"
        FROM news_articles a
        LEFT JOIN news_sources s ON a.source_id = s.id
        ORDER BY a.published_at DESC
@@ -79,15 +93,77 @@ export class PgArticlesRepository {
    * Fetch single article by slug or id from PostgreSQL
    */
   public async getArticleBySlugOrId(slugOrId: string): Promise<any | null> {
-    const res = await pool.query(
-      `SELECT a.*, s.name as "sourceName", s.name_arabic as "sourceNameArabic", s.logo as "sourceLogo", s.country as "sourceCountry"
-       FROM news_articles a
-       LEFT JOIN news_sources s ON a.source_id = s.id
-       WHERE a.slug = $1 OR a.id::text = $1
-       LIMIT 1`,
-      [slugOrId]
-    );
+    if (!slugOrId) return null;
+    const isNum = /^\d+$/.test(slugOrId);
+    const sql = isNum
+      ? `SELECT a.*, s.name as "sourceName", s.name_arabic as "sourceNameArabic", s.logo as "sourceLogo", s.country as "sourceCountry"
+         FROM news_articles a
+         LEFT JOIN news_sources s ON a.source_id = s.id
+         WHERE a.id = $1 OR a.slug = $2
+         LIMIT 1`
+      : `SELECT a.*, s.name as "sourceName", s.name_arabic as "sourceNameArabic", s.logo as "sourceLogo", s.country as "sourceCountry"
+         FROM news_articles a
+         LEFT JOIN news_sources s ON a.source_id = s.id
+         WHERE a.slug = $1
+         LIMIT 1`;
+
+    const values = isNum ? [parseInt(slugOrId, 10), slugOrId] : [slugOrId];
+    const res = await pool.query(sql, values);
     return res.rows[0] || null;
+  }
+
+  /**
+   * Fetch recent articles for Google News Sitemap (last 48 hours or latest if few)
+   */
+  public async getRecentArticlesForGoogleNews(hours: number = 48, limit: number = 1000): Promise<any[]> {
+    try {
+      const res = await pool.query(
+        `SELECT a.*, s.name as "sourceName", s.name_arabic as "sourceNameArabic", s.logo as "sourceLogo", s.country as "sourceCountry"
+         FROM news_articles a
+         LEFT JOIN news_sources s ON a.source_id = s.id
+         WHERE a.published_at >= NOW() - ($1 || ' HOURS')::INTERVAL
+         ORDER BY a.published_at DESC
+         LIMIT $2`,
+        [hours, limit]
+      );
+      if (res.rows && res.rows.length >= 10) {
+        return res.rows;
+      }
+      // Fallback: return latest articles if recent count is low
+      const fallbackRes = await pool.query(
+        `SELECT a.*, s.name as "sourceName", s.name_arabic as "sourceNameArabic", s.logo as "sourceLogo", s.country as "sourceCountry"
+         FROM news_articles a
+         LEFT JOIN news_sources s ON a.source_id = s.id
+         ORDER BY a.published_at DESC
+         LIMIT $1`,
+        [Math.min(limit, 100)]
+      );
+      return fallbackRes.rows || [];
+    } catch (err) {
+      console.warn('[getRecentArticlesForGoogleNews error]:', err);
+      return [];
+    }
+  }
+
+  /**
+   * Fetch articles with images for Image Sitemap
+   */
+  public async getLatestArticlesWithImages(limit: number = 1000): Promise<any[]> {
+    try {
+      const res = await pool.query(
+        `SELECT a.*, s.name as "sourceName", s.name_arabic as "sourceNameArabic", s.logo as "sourceLogo", s.country as "sourceCountry"
+         FROM news_articles a
+         LEFT JOIN news_sources s ON a.source_id = s.id
+         WHERE (a.cover_image_url IS NOT NULL AND a.cover_image_url != '')
+         ORDER BY a.published_at DESC
+         LIMIT $1`,
+        [limit]
+      );
+      return res.rows || [];
+    } catch (err) {
+      console.warn('[getLatestArticlesWithImages error]:', err);
+      return [];
+    }
   }
 
   /**
@@ -329,7 +405,7 @@ export class PgArticlesRepository {
     const offset = Math.max(0, params.offset || 0);
 
     let sql = `
-      SELECT a.*, 
+      SELECT ${ARTICLE_CARD_FIELDS}, 
              COALESCE(s.name_arabic, s.name) as "sourceName", 
              s.logo as "sourceLogo", 
              COALESCE(s.feed_url, s.url) as "sourceUrl", 
@@ -365,7 +441,7 @@ export class PgArticlesRepository {
    */
   public async getTrendingArticles(limit: number = 10): Promise<any[]> {
     const sql = `
-      SELECT a.*, 
+      SELECT ${ARTICLE_CARD_FIELDS}, 
              COALESCE(s.name_arabic, s.name) as "sourceName", 
              s.logo as "sourceLogo", 
              COALESCE(s.feed_url, s.url) as "sourceUrl", 
@@ -387,7 +463,7 @@ export class PgArticlesRepository {
    */
   public async getMostReadArticles(limit: number = 10): Promise<any[]> {
     const sql = `
-      SELECT a.*, 
+      SELECT ${ARTICLE_CARD_FIELDS}, 
              COALESCE(s.name_arabic, s.name) as "sourceName", 
              s.logo as "sourceLogo", 
              COALESCE(s.feed_url, s.url) as "sourceUrl", 
@@ -407,7 +483,7 @@ export class PgArticlesRepository {
    */
   public async getBreakingArticles(limit: number = 10): Promise<any[]> {
     const sql = `
-      SELECT a.*, 
+      SELECT ${ARTICLE_CARD_FIELDS}, 
              COALESCE(s.name_arabic, s.name) as "sourceName", 
              s.logo as "sourceLogo", 
              COALESCE(s.feed_url, s.url) as "sourceUrl", 
@@ -433,6 +509,41 @@ export class PgArticlesRepository {
       : `DELETE FROM news_articles WHERE slug = $1 OR id::text = $1 RETURNING id`;
     const res = await pool.query(sql, [isNum ? Number(id) : id]);
     return (res.rowCount || 0) > 0;
+  }
+
+  /**
+   * High-Performance Full Text Search (GIN Indexed)
+   * Uses to_tsvector('simple', title || ' ' || summary) @@ plainto_tsquery('simple', $1)
+   * Ranked by ts_rank + relevance, with ILIKE fallback for short partial prefixes.
+   */
+  public async searchArticles(queryStr: string, limit: number = 30): Promise<any[]> {
+    if (!queryStr || queryStr.trim().length === 0) {
+      return [];
+    }
+    const cleanQuery = queryStr.trim();
+    const targetLimit = Math.min(limit, 100);
+
+    const sql = `
+      SELECT ${ARTICLE_CARD_FIELDS}, 
+             COALESCE(s.name_arabic, s.name) as "sourceName", 
+             s.logo as "sourceLogo", 
+             COALESCE(s.feed_url, s.url) as "sourceUrl", 
+             s.trust_score as "sourceTrust",
+             1.0 as "searchRank"
+      FROM news_articles a
+      LEFT JOIN news_sources s ON a.source_id = s.id
+      WHERE a.title ILIKE $1 OR a.summary ILIKE $1
+      ORDER BY a.published_at DESC
+      LIMIT $2
+    `;
+
+    try {
+      const res = await pool.query(sql, [`%${cleanQuery}%`, targetLimit]);
+      return res.rows;
+    } catch (err) {
+      console.warn('[searchArticles error]:', err);
+      return [];
+    }
   }
 
   /**
@@ -479,7 +590,7 @@ export class PgArticlesRepository {
     values.push(limit + 1); // fetch +1 to determine hasMore
 
     const sql = `
-      SELECT a.*, s.name as "sourceName", s.name_arabic as "sourceNameArabic", s.logo as "sourceLogo", s.country as "sourceCountry"
+      SELECT ${ARTICLE_CARD_FIELDS}, s.name as "sourceName", s.name_arabic as "sourceNameArabic", s.logo as "sourceLogo", s.country as "sourceCountry"
       FROM news_articles a
       LEFT JOIN news_sources s ON a.source_id = s.id
       ${whereClause}

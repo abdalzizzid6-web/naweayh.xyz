@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
+import sanitizeHtmlLibrary from 'sanitize-html';
 import { pool, ensureDbInitialized } from '../db/connection';
 import { NEWS_CATEGORIES, COUNTRIES, YEMEN_REGIONS } from '../../src/services/newsService';
 import { newsIngestionService } from '../services/NewsIngestionService';
@@ -9,9 +10,14 @@ import { pgSourcesRepository } from '../repositories/pgSourcesRepository';
 import { normalizeArabicText, matchesArabicText } from '../../src/infrastructure/utils/arabicNormalizer';
 import { seoEngineService } from '../../src/seo-engine/SEOEngineService';
 import { httpClientService } from '../services/HttpClientService';
+import { RateLimiterService } from '../services/RateLimiterService';
+import { SecurityAuditService } from '../services/SecurityAuditService';
+import { validateRequest, CommonSchemas } from '../services/ValidationService';
 import { XMLParser } from 'fast-xml-parser';
 
 export const newsApiRouter = Router();
+
+const securityLimits = RateLimiterService.getLimits();
 
 // Deduplication Viewer Hash Generator (SHA-256 of IP + UA + Date)
 function getViewerHash(req: Request): string {
@@ -138,11 +144,21 @@ export const validateCronSecret = (req: Request, res: Response, next: NextFuncti
 // ==========================================
 
 // GET /api/v1/news - Paginated, filtered, sorted articles
-// Helper to map DB row to standard NewsArticle domain model
+// Helper to map DB row to standard NewsArticle domain model with strict HTML sanitization
 export function mapDbRowToArticle(row: any): any {
-  const paragraphs = (row.formatted_body || row.content_html || row.content || row.summary || '')
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+  const rawHtmlBody = row.formatted_body || row.content_html || row.content || row.summary || '';
+  
+  // Safe HTML sanitization using library instead of vulnerable regexes
+  const safeHtml = sanitizeHtmlLibrary(rawHtmlBody, {
+    allowedTags: ['p', 'b', 'i', 'strong', 'em', 'h1', 'h2', 'h3', 'h4', 'blockquote', 'ul', 'ol', 'li', 'br', 'span', 'a'],
+    allowedAttributes: {
+      'a': ['href', 'title', 'target', 'rel'],
+      '*': ['dir', 'lang']
+    },
+    allowedSchemes: ['http', 'https'],
+  });
+
+  const paragraphs = safeHtml
     .replace(/<div\b[^>]*>/gi, '<p>')
     .replace(/<\/div>/gi, '</p>')
     .match(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)
@@ -157,9 +173,11 @@ export function mapDbRowToArticle(row: any): any {
         .map((s: string) => s.trim())
         .filter((s: string) => s.length > 20);
 
-  const cleanTitle = (row.title || '').replace(/<!\[CDATA\[/gi, '').replace(/\]\]>/gi, '').replace(/<[^>]+>/g, '').trim();
-  const cleanSummary = (row.summary || row.excerpt || '').replace(/<!\[CDATA\[/gi, '').replace(/\]\]>/gi, '').replace(/<[^>]+>/g, '').trim();
-  const rawContent = (row.content || row.formatted_body || row.content_html || cleanSummary).replace(/<!\[CDATA\[/gi, '').replace(/\]\]>/gi, '').trim();
+  const cleanTitle = sanitizeHtmlLibrary(row.title || '', { allowedTags: [] }).trim();
+  const cleanSummary = sanitizeHtmlLibrary(row.summary || row.excerpt || '', { allowedTags: [] }).trim();
+  const rawContent = sanitizeHtmlLibrary(row.content || row.formatted_body || row.content_html || cleanSummary, {
+    allowedTags: ['p', 'b', 'i', 'strong', 'em', 'h2', 'h3', 'blockquote', 'br', 'ul', 'ol', 'li'],
+  }).trim();
 
   const isFull = Boolean(
     row.is_full_content_available ||
@@ -176,8 +194,8 @@ export function mapDbRowToArticle(row: any): any {
     slug: row.slug,
     summary: cleanSummary,
     content: rawContent,
-    formattedBody: row.formatted_body || row.content_html || rawContent,
-    contentHtml: row.content_html || row.formatted_body || rawContent,
+    formattedBody: safeHtml || rawContent,
+    contentHtml: safeHtml || rawContent,
     contentText: row.content_text || cleanSummary,
     excerpt: row.excerpt || cleanSummary,
     contentStatus: row.content_status || (isFull ? 'full' : 'partial'),
@@ -352,7 +370,7 @@ newsApiRouter.post('/v1/sources/:id/toggle', checkAdminRole, async (req, res) =>
 });
 
 // GET /api/v1/news/breaking
-newsApiRouter.get(['/v1/news/breaking', '/news/breaking'], async (req, res) => {
+newsApiRouter.get(['/v1/news/breaking', '/v1/breaking', '/news/breaking', '/breaking'], async (req, res) => {
   try {
     const limitNum = parseInt((req.query.limit as string) || '10', 10);
     const rows = await pgArticlesRepository.getBreakingArticles(limitNum);
@@ -364,7 +382,7 @@ newsApiRouter.get(['/v1/news/breaking', '/news/breaking'], async (req, res) => {
 });
 
 // GET /api/v1/news/trending
-newsApiRouter.get(['/v1/news/trending', '/news/trending'], async (req, res) => {
+newsApiRouter.get(['/v1/news/trending', '/v1/trending', '/news/trending', '/trending'], async (req, res) => {
   try {
     const limitNum = parseInt((req.query.limit as string) || '10', 10);
     const rows = await pgArticlesRepository.getTrendingArticles(limitNum);
@@ -376,7 +394,7 @@ newsApiRouter.get(['/v1/news/trending', '/news/trending'], async (req, res) => {
 });
 
 // GET /api/v1/news/most-read
-newsApiRouter.get(['/v1/news/most-read', '/news/most-read'], async (req, res) => {
+newsApiRouter.get(['/v1/news/most-read', '/v1/most-read', '/news/most-read', '/most-read'], async (req, res) => {
   try {
     const limitNum = parseInt((req.query.limit as string) || '10', 10);
     const rows = await pgArticlesRepository.getMostReadArticles(limitNum);
@@ -391,61 +409,137 @@ newsApiRouter.get(['/v1/news/most-read', '/news/most-read'], async (req, res) =>
 // REAL USER INTERACTION ROUTES (POSTGRESQL SOT)
 // ==========================================
 
-// POST /api/v1/news/:id/view - Real view tracking in PostgreSQL
-newsApiRouter.post(['/v1/news/:id/view', '/news/:id/view'], async (req, res) => {
-  try {
-    const { id } = req.params;
-    const viewerHash = getViewerHash(req);
-    const result = await pgArticlesRepository.incrementView(id, viewerHash);
-    return res.json({ success: true, ...result });
-  } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
+// POST /api/v1/news/:id/view - Real view tracking in PostgreSQL (Rate Limited)
+newsApiRouter.post(
+  ['/v1/news/:id/view', '/news/:id/view'],
+  RateLimiterService.middleware({
+    keyPrefix: 'view',
+    maxPoints: securityLimits.viewsMax,
+    windowSeconds: 60,
+  }),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const viewerHash = getViewerHash(req);
+      const result = await pgArticlesRepository.incrementView(id, viewerHash);
+      return res.json({ success: true, ...result });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
   }
-});
+);
 
-// POST /api/v1/news/:id/share - Real share increment in PostgreSQL
-newsApiRouter.post(['/v1/news/:id/share', '/news/:id/share'], async (req, res) => {
-  try {
-    const { id } = req.params;
-    const sharesCount = await pgArticlesRepository.incrementShare(id);
-    return res.json({ success: true, sharesCount });
-  } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
+// POST /api/v1/news/:id/share - Real share increment in PostgreSQL (Rate Limited)
+newsApiRouter.post(
+  ['/v1/news/:id/share', '/news/:id/share'],
+  RateLimiterService.middleware({
+    keyPrefix: 'share',
+    maxPoints: securityLimits.sharesMax,
+    windowSeconds: 60,
+  }),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const sharesCount = await pgArticlesRepository.incrementShare(id);
+      return res.json({ success: true, sharesCount });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
   }
-});
+);
 
-// POST /api/v1/news/:id/save - Save / Bookmark in PostgreSQL
-newsApiRouter.post(['/v1/news/:id/save', '/news/:id/save'], async (req, res) => {
-  try {
-    const { id } = req.params;
-    const userId = (req as any).user?.id || (req.body.userId ? parseInt(req.body.userId, 10) : null);
-    const deviceId = (req.headers['x-device-id'] as string) || req.body.deviceId || null;
-    const result = await pgArticlesRepository.saveArticle(id, userId, deviceId);
-    return res.json({ success: true, ...result });
-  } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
+// POST /api/v1/news/:id/save - Save / Bookmark in PostgreSQL (IDOR Protected & Rate Limited)
+newsApiRouter.post(
+  ['/v1/news/:id/save', '/news/:id/save'],
+  RateLimiterService.middleware({
+    keyPrefix: 'save',
+    maxPoints: securityLimits.saveMax,
+    windowSeconds: 60,
+  }),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      // SECURITY: IDOR Protection - never trust req.body.userId. Always use authenticated session identity or verified deviceId.
+      const userId = (req as any).user?.userId || null;
+      let deviceId = (req.headers['x-device-id'] as string) || req.body?.deviceId || null;
+      if (deviceId && typeof deviceId === 'string') {
+        deviceId = deviceId.trim().slice(0, 64);
+        if (!/^[a-zA-Z0-9_-]{8,64}$/.test(deviceId)) {
+          deviceId = null;
+        }
+      }
+
+      if (!userId && !deviceId) {
+        return res.status(400).json({
+          success: false,
+          code: 'IDENTIFIER_REQUIRED',
+          message: 'يجب توفير معرف جهاز صالح أو تسجيل الدخول لحفظ المقال.',
+        });
+      }
+
+      const result = await pgArticlesRepository.saveArticle(id, userId, deviceId);
+      return res.json({ success: true, ...result });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
   }
-});
+);
 
-// DELETE /api/v1/news/:id/save - Remove Bookmark in PostgreSQL
-newsApiRouter.delete(['/v1/news/:id/save', '/news/:id/save'], async (req, res) => {
-  try {
-    const { id } = req.params;
-    const userId = (req as any).user?.id || (req.body?.userId ? parseInt(req.body.userId, 10) : null);
-    const deviceId = (req.headers['x-device-id'] as string) || req.body?.deviceId || (req.query.deviceId as string) || null;
-    const result = await pgArticlesRepository.unsaveArticle(id, userId, deviceId);
-    return res.json({ success: true, ...result });
-  } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
+// DELETE /api/v1/news/:id/save - Remove Bookmark in PostgreSQL (IDOR Protected & Rate Limited)
+newsApiRouter.delete(
+  ['/v1/news/:id/save', '/news/:id/save'],
+  RateLimiterService.middleware({
+    keyPrefix: 'save',
+    maxPoints: securityLimits.saveMax,
+    windowSeconds: 60,
+  }),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      // SECURITY: IDOR Protection
+      const userId = (req as any).user?.userId || null;
+      let deviceId = (req.headers['x-device-id'] as string) || req.body?.deviceId || (req.query.deviceId as string) || null;
+      if (deviceId && typeof deviceId === 'string') {
+        deviceId = deviceId.trim().slice(0, 64);
+        if (!/^[a-zA-Z0-9_-]{8,64}$/.test(deviceId)) {
+          deviceId = null;
+        }
+      }
+
+      if (!userId && !deviceId) {
+        return res.status(400).json({
+          success: false,
+          code: 'IDENTIFIER_REQUIRED',
+          message: 'يجب توفير معرف جهاز صالح أو تسجيل الدخول لإلغاء حفظ المقال.',
+        });
+      }
+
+      const result = await pgArticlesRepository.unsaveArticle(id, userId, deviceId);
+      return res.json({ success: true, ...result });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
   }
-});
+);
 
-// GET /api/v1/news/saved - Get user saved articles from PostgreSQL
+// GET /api/v1/news/saved - Get user saved articles from PostgreSQL (IDOR Protected)
 newsApiRouter.get(['/v1/news/saved', '/news/saved'], async (req, res) => {
   try {
-    const userId = (req as any).user?.id || (req.query.userId ? parseInt(req.query.userId as string, 10) : null);
-    const deviceId = (req.headers['x-device-id'] as string) || (req.query.deviceId as string) || null;
-    const limit = parseInt((req.query.limit as string) || '50', 10);
+    // SECURITY: IDOR Protection - never trust req.query.userId.
+    const userId = (req as any).user?.userId || null;
+    let deviceId = (req.headers['x-device-id'] as string) || (req.query.deviceId as string) || null;
+    if (deviceId && typeof deviceId === 'string') {
+      deviceId = deviceId.trim().slice(0, 64);
+      if (!/^[a-zA-Z0-9_-]{8,64}$/.test(deviceId)) {
+        deviceId = null;
+      }
+    }
+
+    if (!userId && !deviceId) {
+      return res.json({ success: true, count: 0, data: [] });
+    }
+
+    const limit = Math.min(parseInt((req.query.limit as string) || '50', 10), 100);
     const offset = parseInt((req.query.offset as string) || '0', 10);
     const rows = await pgArticlesRepository.getSavedArticles({ userId, deviceId, limit, offset });
     const mapped = rows.map(mapDbRowToArticle);
@@ -1115,43 +1209,37 @@ newsApiRouter.delete('/v1/sources/:id', checkAdminRole, async (req, res) => {
 // 3. ARABIC SEARCH ENGINE ENDPOINT
 // ==========================================
 
-newsApiRouter.get(['/v1/search', '/search'], async (req, res) => {
-  try {
-    const { q = '' } = req.query;
-    const queryStr = q as string;
+newsApiRouter.get(
+  ['/v1/search', '/search'],
+  RateLimiterService.middleware({
+    keyPrefix: 'search',
+    maxPoints: securityLimits.searchMax,
+    windowSeconds: securityLimits.searchWindowSec,
+  }),
+  async (req, res) => {
+    try {
+      const { q = '' } = req.query;
+      const queryStr = (typeof q === 'string' ? q : '').trim().slice(0, 200);
 
-    if (!queryStr || queryStr.trim().length === 0) {
-      return res.json({ success: true, count: 0, data: [] });
+      if (!queryStr) {
+        return res.json({ success: true, count: 0, data: [] });
+      }
+
+      const normQuery = normalizeArabicText(queryStr);
+      const rows = await pgArticlesRepository.searchArticles(normQuery, 30);
+      const results = rows.map(mapDbRowToArticle);
+
+      res.json({
+        success: true,
+        normalizedQuery: normQuery,
+        count: results.length,
+        data: results,
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
     }
-
-    const normQuery = normalizeArabicText(queryStr.trim());
-    const searchPattern = `%${normQuery}%`;
-    const searchRes = await pool.query(
-      `SELECT a.*, 
-              COALESCE(s.name_arabic, s.name) as "sourceName", 
-              s.logo as "sourceLogo", 
-              COALESCE(s.feed_url, s.url) as "sourceUrl", 
-              s.trust_score as "sourceTrust"
-       FROM news_articles a
-       LEFT JOIN news_sources s ON a.source_id = s.id
-       WHERE a.title ILIKE $1 OR a.summary ILIKE $1 OR a.content ILIKE $1 OR a.category ILIKE $1
-       ORDER BY a.published_at DESC
-       LIMIT 30`,
-      [searchPattern]
-    );
-
-    const results = searchRes.rows.map(mapDbRowToArticle);
-
-    res.json({
-      success: true,
-      normalizedQuery: normQuery,
-      count: results.length,
-      data: results,
-    });
-  } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
   }
-});
+);
 
 // ==========================================
 // 4. PERSONALIZED RECOMMENDATION ENGINE ("أخبارك") -> PostgreSQL Source of Truth
@@ -1229,34 +1317,49 @@ newsApiRouter.get(['/v1/news/personalized', '/v1/news/recommendations'], async (
 });
 
 // ==========================================
-// 5. REAL ANALYTICS TRACKING ENDPOINT -> PostgreSQL Source of Truth
+// 5. REAL ANALYTICS TRACKING ENDPOINT -> PostgreSQL Source of Truth (Rate Limited & Validated)
 // ==========================================
 
-newsApiRouter.post(['/v1/analytics/track', '/analytics/track'], async (req, res) => {
-  try {
-    const { eventType, articleId, slug, readingTimeSeconds } = req.body;
+newsApiRouter.post(
+  ['/v1/analytics/track', '/analytics/track'],
+  RateLimiterService.middleware({
+    keyPrefix: 'analytics',
+    maxPoints: securityLimits.analyticsMax,
+    windowSeconds: 60,
+  }),
+  validateRequest({ body: CommonSchemas.trackingBody }),
+  async (req, res) => {
+    try {
+      const { eventType, articleId, slug, readingTimeSeconds } = req.body;
 
-    if (articleId) {
-      if (eventType === 'view') {
-        const viewerHash = getViewerHash(req);
-        await pgArticlesRepository.incrementView(articleId, viewerHash);
-      } else if (eventType === 'share') {
-        await pgArticlesRepository.incrementShare(articleId);
-      } else if (eventType === 'save') {
-        const userId = (req as any).user?.id || null;
-        const deviceId = (req.headers['x-device-id'] as string) || null;
-        await pgArticlesRepository.saveArticle(articleId, userId, deviceId);
+      if (articleId) {
+        if (eventType === 'view') {
+          const viewerHash = getViewerHash(req);
+          await pgArticlesRepository.incrementView(articleId, viewerHash);
+        } else if (eventType === 'share') {
+          await pgArticlesRepository.incrementShare(articleId);
+        } else if (eventType === 'save') {
+          const userId = (req as any).user?.userId || null;
+          let deviceId = (req.headers['x-device-id'] as string) || null;
+          if (deviceId && typeof deviceId === 'string') {
+            deviceId = deviceId.trim().slice(0, 64);
+            if (!/^[a-zA-Z0-9_-]{8,64}$/.test(deviceId)) {
+              deviceId = null;
+            }
+          }
+          await pgArticlesRepository.saveArticle(articleId, userId, deviceId);
+        }
       }
-    }
 
-    res.json({
-      success: true,
-      tracked: { eventType, articleId, slug, readingTimeSeconds, timestamp: new Date().toISOString() },
-    });
-  } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
+      res.json({
+        success: true,
+        tracked: { eventType, articleId, slug, readingTimeSeconds, timestamp: new Date().toISOString() },
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
   }
-});
+);
 
 // ==========================================
 // 6. CRON JOBS (PROTECTED WITH CRON_SECRET) & SEO FEEDS

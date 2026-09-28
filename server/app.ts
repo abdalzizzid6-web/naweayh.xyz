@@ -1,4 +1,6 @@
 import express, { Express } from 'express';
+import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
 import { newsApiRouter, mapDbRowToArticle } from './api/newsRouter';
 import { authRouter, requireAdminAuth } from './api/authRouter';
 import { storiesApiRouter } from './api/storiesRouter';
@@ -10,6 +12,10 @@ import { sourcesRepository } from '../src/repositories/sourcesRepository';
 import { pool } from './db/connection';
 import { newsSchedulerWorker } from './workers/NewsSchedulerWorker';
 import { telemetryService } from './services/TelemetryService';
+import { renderPageSSR, getBaseHtmlTemplate } from './ssrHandler';
+import { pgArticlesRepository } from './repositories/pgArticlesRepository';
+import { RateLimiterService } from './services/RateLimiterService';
+import { validateRequest, CommonSchemas } from './services/ValidationService';
 
 export async function syncDatabaseArticlesToRepository(): Promise<number> {
   try {
@@ -107,13 +113,68 @@ export function createExpressApp(): Express {
     next();
   });
 
-  // Basic Middleware & Live Request Telemetry
-  app.use(telemetryService.middleware());
-  app.use(express.json({ limit: '10mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+  // 0. Security Headers (Helmet, CSP, HSTS, Permissions-Policy, Clickjacking protection)
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: [
+            "'self'",
+            "'unsafe-inline'",
+            "'unsafe-eval'",
+            'https://pagead2.googlesyndication.com',
+            'https://www.googletagmanager.com',
+            'https://partner.googleadservices.com',
+            'https://tpc.googlesyndication.com',
+          ],
+          styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+          fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
+          imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
+          connectSrc: ["'self'", 'https:', 'wss:', 'http://localhost:*', 'ws://localhost:*'],
+          frameSrc: [
+            "'self'",
+            'https://googleads.g.doubleclick.net',
+            'https://tpc.googlesyndication.com',
+            'https://www.google.com',
+          ],
+          frameAncestors: [
+            "'self'",
+            'https://*.run.app',
+            'https://*.google.com',
+            'https://naweayh.xyz',
+          ],
+        },
+      },
+      crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
+      referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+      hsts: {
+        maxAge: 31536000,
+        includeSubDomains: true,
+        preload: true,
+      },
+      xContentTypeOptions: true,
+      frameguard: false, // Handled via CSP frameAncestors to permit preview iframe safely
+    })
+  );
 
-  // Live Forensic Health & Metrics Telemetry API
-  app.get('/api/v1/monitoring/health-metrics', async (_req, res) => {
+  // Set Permissions-Policy header
+  app.use((_req, res, next) => {
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+    next();
+  });
+
+  // Cookie parser for secure HttpOnly cookie session management
+  app.use(cookieParser());
+
+  // Basic Middleware & Live Request Telemetry with strict 1MB body limits
+  app.use(telemetryService.middleware());
+  app.use(express.json({ limit: '1mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+
+  // Live Forensic Health & Metrics Telemetry API (Admin-Only)
+  app.get('/api/v1/monitoring/health-metrics', requireAdminAuth, async (_req, res) => {
     try {
       const metrics = await telemetryService.getLiveMetrics();
       res.json({ success: true, data: metrics });
@@ -174,23 +235,54 @@ export function createExpressApp(): Express {
   app.use('/api', storiesApiRouter);
   app.use('/api', socialRouter);
 
-  // AI Pipeline Processing Endpoint (Admin Protected)
-  app.post('/api/ai/process', requireAdminAuth, async (req, res) => {
-    try {
-      const { title, content, sourceName } = req.body;
-      const result = await aiPipelineService.processArticleWithAI(
-        title || '',
-        content || '',
-        sourceName || 'أخبار نوعية'
-      );
-      res.json({ success: true, data: result });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+  // AI Pipeline Processing Endpoint (Admin Protected & Rate Limited & Validated)
+  const appSecurityLimits = RateLimiterService.getLimits();
+  app.post(
+    '/api/ai/process',
+    requireAdminAuth,
+    RateLimiterService.middleware({
+      keyPrefix: 'ai',
+      maxPoints: appSecurityLimits.aiMax,
+      windowSeconds: 60,
+    }),
+    validateRequest({ body: CommonSchemas.aiProcessBody }),
+    async (req, res) => {
+      try {
+        const { title, content, sourceName } = req.body;
+        const result = await aiPipelineService.processArticleWithAI(
+          title || '',
+          content || '',
+          sourceName || 'أخبار نوعية'
+        );
+        res.json({ success: true, data: result });
+      } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+      }
     }
+  );
+
+  // Public Health Check API (Security Hardened: Status ONLY. Zero leaks of environment, runtime, or database metrics)
+  app.get(['/api/health', '/health'], async (_req, res) => {
+    let dbStatus = 'FAILED';
+    try {
+      const client = await pool.connect();
+      await client.query('SELECT 1');
+      if (typeof client.release === 'function') {
+        client.release();
+      }
+      dbStatus = 'HEALTHY';
+    } catch {
+      dbStatus = 'FAILED';
+    }
+
+    const overallStatus = dbStatus === 'HEALTHY' ? 'healthy' : 'degraded';
+    res.json({
+      status: overallStatus,
+    });
   });
 
-  // Enterprise Health Check API
-  app.get('/api/health', async (_req, res) => {
+  // Admin-Only Diagnostic Health Check (Protected with Central Auth & RBAC)
+  app.get('/api/v1/admin/health', requireAdminAuth, async (_req, res) => {
     const startTime = Date.now();
     let dbStatus = 'FAILED';
     let dbLatency = 0;
@@ -212,7 +304,6 @@ export function createExpressApp(): Express {
     const aiStatus = hasGeminiKey ? 'AVAILABLE' : 'CONFIG_MISSING';
     const ingestionStatus = dbStatus === 'HEALTHY' ? 'HEALTHY' : 'FAILED';
     const schedulerStatus = process.env.VERCEL ? 'EXTERNAL_CRON_MANAGED' : 'RUNNING';
-
     const overallStatus = dbStatus === 'HEALTHY' ? 'healthy' : 'degraded';
 
     res.json({
@@ -237,7 +328,7 @@ export function createExpressApp(): Express {
         },
         ai: {
           status: aiStatus,
-          provider: 'Google Gemini AI (gemini-3.6-flash)',
+          provider: 'Google Gemini AI (gemini-2.5-flash)',
         },
         scheduler: {
           status: schedulerStatus,
@@ -246,17 +337,23 @@ export function createExpressApp(): Express {
     });
   });
 
-  // XML & SEO Sitemaps (Both root and /api/seo paths supported)
+  // XML & SEO Sitemaps (Both root and /api/seo paths supported with real PostgreSQL queries)
   const serveMasterSitemap = async (_req: express.Request, res: express.Response) => {
-    if (articlesRepository.getAll().length === 0) await syncDatabaseArticlesToRepository();
     res.header('Content-Type', 'application/xml; charset=utf-8');
     res.send(seoEngineService.generateMasterSitemapXML());
   };
 
   const serveNewsSitemap = async (_req: express.Request, res: express.Response) => {
-    if (articlesRepository.getAll().length === 0) await syncDatabaseArticlesToRepository();
-    res.header('Content-Type', 'application/xml; charset=utf-8');
-    res.send(seoEngineService.generateNewsSitemapXML());
+    try {
+      const dbArticles = await pgArticlesRepository.getRecentArticlesForGoogleNews(48, 1000);
+      const articles = dbArticles.length > 0 ? dbArticles.map(mapDbRowToArticle) : articlesRepository.getAll();
+      res.header('Content-Type', 'application/xml; charset=utf-8');
+      res.send(seoEngineService.generateNewsSitemapXML(articles));
+    } catch {
+      if (articlesRepository.getAll().length === 0) await syncDatabaseArticlesToRepository();
+      res.header('Content-Type', 'application/xml; charset=utf-8');
+      res.send(seoEngineService.generateNewsSitemapXML());
+    }
   };
 
   const servePagesSitemap = (_req: express.Request, res: express.Response) => {
@@ -265,38 +362,67 @@ export function createExpressApp(): Express {
   };
 
   const serveCategoriesSitemap = async (_req: express.Request, res: express.Response) => {
-    if (articlesRepository.getAll().length === 0) await syncDatabaseArticlesToRepository();
-    res.header('Content-Type', 'application/xml; charset=utf-8');
-    res.send(seoEngineService.generateCategoriesSitemapXML());
+    try {
+      const catsRes = await pool.query("SELECT DISTINCT category FROM news_articles WHERE category IS NOT NULL AND category != ''");
+      const categories = catsRes.rows.map((r: any) => r.category);
+      res.header('Content-Type', 'application/xml; charset=utf-8');
+      res.send(seoEngineService.generateCategoriesSitemapXML(categories));
+    } catch {
+      res.header('Content-Type', 'application/xml; charset=utf-8');
+      res.send(seoEngineService.generateCategoriesSitemapXML());
+    }
   };
 
   const serveSourcesSitemap = async (_req: express.Request, res: express.Response) => {
-    if (articlesRepository.getAll().length === 0) await syncDatabaseArticlesToRepository();
-    res.header('Content-Type', 'application/xml; charset=utf-8');
-    res.send(seoEngineService.generateSourcesSitemapXML());
+    try {
+      const srcRes = await pool.query('SELECT name, name_arabic FROM news_sources ORDER BY id ASC');
+      const sources = srcRes.rows.map((r: any) => r.name_arabic || r.name).filter(Boolean);
+      res.header('Content-Type', 'application/xml; charset=utf-8');
+      res.send(seoEngineService.generateSourcesSitemapXML(sources));
+    } catch {
+      res.header('Content-Type', 'application/xml; charset=utf-8');
+      res.send(seoEngineService.generateSourcesSitemapXML());
+    }
   };
 
   const serveImageSitemap = async (_req: express.Request, res: express.Response) => {
-    if (articlesRepository.getAll().length === 0) await syncDatabaseArticlesToRepository();
-    res.header('Content-Type', 'application/xml; charset=utf-8');
-    res.send(seoEngineService.generateImageSitemapXML());
-  };
-
-  const serveVideoSitemap = async (_req: express.Request, res: express.Response) => {
-    if (articlesRepository.getAll().length === 0) await syncDatabaseArticlesToRepository();
-    res.header('Content-Type', 'application/xml; charset=utf-8');
-    res.send(seoEngineService.generateVideoSitemapXML());
+    try {
+      const dbArticles = await pgArticlesRepository.getLatestArticlesWithImages(1000);
+      const articles = dbArticles.length > 0 ? dbArticles.map(mapDbRowToArticle) : articlesRepository.getAll();
+      res.header('Content-Type', 'application/xml; charset=utf-8');
+      res.send(seoEngineService.generateImageSitemapXML(articles));
+    } catch {
+      if (articlesRepository.getAll().length === 0) await syncDatabaseArticlesToRepository();
+      res.header('Content-Type', 'application/xml; charset=utf-8');
+      res.send(seoEngineService.generateImageSitemapXML());
+    }
   };
 
   const serveRSS = async (_req: express.Request, res: express.Response) => {
-    if (articlesRepository.getAll().length === 0) await syncDatabaseArticlesToRepository();
-    res.header('Content-Type', 'application/rss+xml; charset=utf-8');
-    res.send(seoEngineService.generateRSSFeedXML());
+    try {
+      const dbArticles = await pgArticlesRepository.getLatestArticles(50);
+      const articles = dbArticles.length > 0 ? dbArticles.map(mapDbRowToArticle) : articlesRepository.getAll();
+      res.header('Content-Type', 'application/rss+xml; charset=utf-8');
+      res.send(seoEngineService.generateRSSFeedXML(articles));
+    } catch {
+      if (articlesRepository.getAll().length === 0) await syncDatabaseArticlesToRepository();
+      res.header('Content-Type', 'application/rss+xml; charset=utf-8');
+      res.send(seoEngineService.generateRSSFeedXML());
+    }
   };
 
   const serveRobots = (_req: express.Request, res: express.Response) => {
     res.header('Content-Type', 'text/plain; charset=utf-8');
     res.send(seoEngineService.generateRobotsTxt());
+  };
+
+  const serveAdsTxt = (_req: express.Request, res: express.Response) => {
+    res.header('Content-Type', 'text/plain; charset=utf-8');
+    res.send(
+      '# Ads.txt for Naw3iya News (https://naweayh.xyz)\n' +
+      '# Official Publisher Authorized Digital Sellers\n' +
+      'google.com, pub-7294820194820194, DIRECT, f08c47fec0942fa0\n'
+    );
   };
 
   // Root level SEO routes
@@ -307,11 +433,11 @@ export function createExpressApp(): Express {
   app.get('/sitemap-categories.xml', serveCategoriesSitemap);
   app.get('/sitemap-sources.xml', serveSourcesSitemap);
   app.get('/sitemap-images.xml', serveImageSitemap);
-  app.get('/sitemap-videos.xml', serveVideoSitemap);
   app.get('/rss.xml', serveRSS);
   app.get('/feed.xml', serveRSS);
   app.get('/breaking-news.xml', serveNewsSitemap);
   app.get('/robots.txt', serveRobots);
+  app.get('/ads.txt', serveAdsTxt);
 
   // /api/seo/* paths for Vercel rewrites
   app.get('/api/seo/sitemap.xml', serveMasterSitemap);
@@ -321,8 +447,11 @@ export function createExpressApp(): Express {
 
   // AMP HTML Endpoint
   app.get('/amp/news/:slug', (req, res) => {
-    const slug = req.params.slug;
-    const article = articlesRepository.getBySlug(slug);
+    let slug = req.params.slug;
+    try {
+      slug = decodeURIComponent(slug);
+    } catch {}
+    const article = articlesRepository.getBySlug(slug) || articlesRepository.getById(slug);
     if (!article) {
       res.status(404).send('Article not found');
       return;
@@ -330,6 +459,35 @@ export function createExpressApp(): Express {
     res.header('Content-Type', 'text/html; charset=utf-8');
     res.send(seoEngineService.generateAMPArticleHTML(article));
   });
+
+  // Server-Side Pre-render HTML Endpoints (For OpenGraph, WhatsApp, Twitter, and Crawlers)
+  const handleSSRRoute = async (req: express.Request, res: express.Response) => {
+    try {
+      const baseHtml = getBaseHtmlTemplate();
+      const { html, status } = await renderPageSSR(baseHtml, req.path, req.query);
+      res.status(status).set({ 'Content-Type': 'text/html; charset=utf-8' }).send(html);
+    } catch (err) {
+      console.warn('[SSR Route Error]:', err);
+      const baseHtml = getBaseHtmlTemplate();
+      res.status(200).set({ 'Content-Type': 'text/html; charset=utf-8' }).send(baseHtml);
+    }
+  };
+
+  app.get('/', handleSSRRoute);
+  app.get('/news/:slug', handleSSRRoute);
+  app.get('/category/:category', handleSSRRoute);
+  app.get('/source/:source', handleSSRRoute);
+  app.get('/privacy-policy', handleSSRRoute);
+  app.get('/terms', handleSSRRoute);
+  app.get('/about', handleSSRRoute);
+  app.get('/contact', handleSSRRoute);
+  app.get('/editorial-policy', handleSSRRoute);
+  app.get('/editorial-guidelines', handleSSRRoute);
+  app.get('/cookie-policy', handleSSRRoute);
+  app.get('/corrections', handleSSRRoute);
+  app.get('/advertising-policy', handleSSRRoute);
+  app.get('/story/:slug', handleSSRRoute);
+  app.get('/search', handleSSRRoute);
 
   return app;
 }

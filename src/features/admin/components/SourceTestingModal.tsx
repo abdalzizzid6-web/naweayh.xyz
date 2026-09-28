@@ -58,12 +58,11 @@ export const SourceTestingModal: React.FC<SourceTestingModalProps> = ({
     setTestResult(null);
 
     try {
-      const token = localStorage.getItem('adminToken') || '';
       const res = await fetch('/api/v1/admin/sources/test', {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           url: source.url,

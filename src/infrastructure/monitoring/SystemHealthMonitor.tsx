@@ -92,9 +92,8 @@ export const SystemHealthMonitor: React.FC = () => {
   const fetchLiveTelemetry = async () => {
     const startPing = performance.now();
     try {
-      const token = localStorage.getItem('adminToken') || '';
       const res = await fetch('/api/v1/monitoring/health-metrics', {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: 'include',
       });
       const pingDuration = Math.round(performance.now() - startPing);
       setRealPingMs(pingDuration);

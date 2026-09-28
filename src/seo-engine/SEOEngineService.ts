@@ -82,12 +82,34 @@ export class SEOEngineService {
         ogSiteName: `${this.siteNameArabic} - ${this.siteName}`,
         ogLocale: 'ar_SA',
         twitterCard: 'summary_large_image',
-        twitterSite: '@NaweayhNews',
+        twitterSite: '@naweayh_news',
         twitterTitle: `${this.siteNameArabic} (${this.siteName}) | ${this.siteTagline}`,
         twitterDescription: 'أخبار نوعية (Naw3iya News) - المنصة الإخبارية الذكية الأولى. تغطية إخبارية فورية ومباشرة.',
         twitterImage: buildAbsoluteUrl('/og-default.jpg'),
       };
     }
+
+    // Category-specific fallback image selection for high visual diversity in Google Discover & Search
+    const getCategoryDefaultImage = (cat?: string) => {
+      switch ((cat || '').trim()) {
+        case 'اقتصاد':
+        case 'أعمال':
+          return 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1200&q=80';
+        case 'تكنولوجيا':
+        case 'تقنية':
+          return 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80';
+        case 'رياضة':
+          return 'https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&w=1200&q=80';
+        case 'اليمن':
+        case 'عرب':
+        case 'سياسة':
+          return 'https://images.unsplash.com/photo-1541872703-74c5e44368f9?auto=format&fit=crop&w=1200&q=80';
+        case 'عالم':
+          return 'https://images.unsplash.com/photo-1526470608268-f674ce90ebd4?auto=format&fit=crop&w=1200&q=80';
+        default:
+          return 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=1200&q=80';
+      }
+    };
 
     // Article Description Priority: excerpt -> summary -> clean content
     const cleanSummary = (article.excerpt || article.summary || article.contentText || article.content || '')
@@ -101,6 +123,7 @@ export class SEOEngineService {
     const title = `${cleanTitle} | ${this.siteNameArabic}`;
 
     const keywords = [
+      this.siteNameArabic,
       this.siteName,
       article.category,
       article.country,
@@ -111,7 +134,7 @@ export class SEOEngineService {
       .join(', ');
 
     const canonicalUrl = buildArticleCanonicalUrl(article.slug || article.id);
-    const mainImage = article.mainImage || 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&w=1200&q=80';
+    const mainImage = article.mainImage || getCategoryDefaultImage(article.category);
 
     return {
       title,
@@ -124,7 +147,7 @@ export class SEOEngineService {
       ogDescription: description,
       ogImage: mainImage,
       ogUrl: canonicalUrl,
-      ogSiteName: this.siteName,
+      ogSiteName: `${this.siteNameArabic} - ${this.siteName}`,
       ogLocale: 'ar_SA',
       articlePublishTime: article.publishDate,
       articleModifiedTime: article.updatedAt || article.publishDate,
@@ -132,7 +155,7 @@ export class SEOEngineService {
       articleAuthor: article.author || 'فريق التحرير',
       articleTags: article.aiEntities?.tags || [],
       twitterCard: 'summary_large_image',
-      twitterSite: '@OmniNewsAr',
+      twitterSite: '@naweayh_news',
       twitterTitle: cleanTitle,
       twitterDescription: description,
       twitterImage: mainImage,
@@ -140,15 +163,15 @@ export class SEOEngineService {
   }
 
   public generateCategoryMetaTags(categoryName: string): SEOMetaOutput {
-    const title = `أخبار ${categoryName} | ${this.siteName}`;
-    const description = `تغطية شاملة ومباشرة لأحدث أخبار ومستجدات قسم ${categoryName} من مصادر موثوقة متعددة على منصة ${this.siteName}.`;
+    const title = `أخبار ${categoryName} | ${this.siteNameArabic}`;
+    const description = `تغطية شاملة ومباشرة لأحدث أخبار ومستجدات قسم ${categoryName} من مصادر موثوقة متعددة على منصة ${this.siteNameArabic}.`;
     const canonicalUrl = buildCategoryCanonicalUrl(categoryName);
     const ogImage = buildAbsoluteUrl('/og-default.jpg');
 
     return {
       title,
       description,
-      keywords: `${categoryName}, أخبار ${categoryName}, ${this.siteName}, تغطية مباشرة, عاجل`,
+      keywords: `${categoryName}, أخبار ${categoryName}, ${this.siteNameArabic}, تغطية مباشرة, عاجل`,
       canonicalUrl,
       robots: 'index, follow, max-image-preview:large, max-snippet:-1',
       ogType: 'website',
@@ -156,10 +179,10 @@ export class SEOEngineService {
       ogDescription: description,
       ogImage,
       ogUrl: canonicalUrl,
-      ogSiteName: this.siteName,
+      ogSiteName: `${this.siteNameArabic} - ${this.siteName}`,
       ogLocale: 'ar_SA',
       twitterCard: 'summary_large_image',
-      twitterSite: '@OmniNewsAr',
+      twitterSite: '@naweayh_news',
       twitterTitle: title,
       twitterDescription: description,
       twitterImage: ogImage,
@@ -167,15 +190,15 @@ export class SEOEngineService {
   }
 
   public generateSourceMetaTags(sourceName: string, sourceLogo?: string): SEOMetaOutput {
-    const title = `أخبار ${sourceName} | ${this.siteName}`;
-    const description = `متابعة أحدث التقارير والأخبار الموثوقة المنشورة عبر ${sourceName} والمجمعة بذكاء على منصة ${this.siteName}.`;
+    const title = `أخبار ${sourceName} | ${this.siteNameArabic}`;
+    const description = `متابعة أحدث التقارير والأخبار الموثوقة المنشورة عبر ${sourceName} والمجمعة بذكاء على منصة ${this.siteNameArabic}.`;
     const canonicalUrl = buildSourceCanonicalUrl(sourceName);
     const ogImage = sourceLogo || buildAbsoluteUrl('/og-default.jpg');
 
     return {
       title,
       description,
-      keywords: `${sourceName}, أخبار ${sourceName}, مصادر الأخبار, ${this.siteName}`,
+      keywords: `${sourceName}, أخبار ${sourceName}, مصادر الأخبار, ${this.siteNameArabic}`,
       canonicalUrl,
       robots: 'index, follow, max-image-preview:large',
       ogType: 'website',
@@ -183,10 +206,10 @@ export class SEOEngineService {
       ogDescription: description,
       ogImage,
       ogUrl: canonicalUrl,
-      ogSiteName: this.siteName,
+      ogSiteName: `${this.siteNameArabic} - ${this.siteName}`,
       ogLocale: 'ar_SA',
       twitterCard: 'summary_large_image',
-      twitterSite: '@OmniNewsAr',
+      twitterSite: '@naweayh_news',
       twitterTitle: title,
       twitterDescription: description,
       twitterImage: ogImage,
@@ -195,14 +218,14 @@ export class SEOEngineService {
 
   public generateSearchMetaTags(query?: string): SEOMetaOutput {
     const qStr = query ? `"${query}"` : '';
-    const title = query ? `نتائج البحث عن ${qStr} | ${this.siteName}` : `البحث في الأخبار | ${this.siteName}`;
-    const description = `نتائج البحث عن الأخبار والمقالات والتقارير في منصة ${this.siteName}.`;
+    const title = query ? `نتائج البحث عن ${qStr} | ${this.siteNameArabic}` : `البحث في الأخبار | ${this.siteNameArabic}`;
+    const description = `نتائج البحث عن الأخبار والمقالات والتقارير في منصة ${this.siteNameArabic}.`;
     const canonicalUrl = buildAbsoluteUrl('/search');
 
     return {
       title,
       description,
-      keywords: `${this.siteName}, بحث أخبار`,
+      keywords: `${this.siteNameArabic}, بحث أخبار`,
       canonicalUrl,
       robots: 'noindex, follow', // Prevent internal search duplicate index bloat
       ogType: 'website',
@@ -210,35 +233,131 @@ export class SEOEngineService {
       ogDescription: description,
       ogImage: buildAbsoluteUrl('/og-default.jpg'),
       ogUrl: canonicalUrl,
-      ogSiteName: this.siteName,
+      ogSiteName: `${this.siteNameArabic} - ${this.siteName}`,
       ogLocale: 'ar_SA',
       twitterCard: 'summary',
-      twitterSite: '@OmniNewsAr',
+      twitterSite: '@naweayh_news',
       twitterTitle: title,
       twitterDescription: description,
       twitterImage: buildAbsoluteUrl('/og-default.jpg'),
     };
   }
 
+  public generateStoryMetaTags(title: string, summary: string, slug: string, imageUrl?: string): SEOMetaOutput {
+    const pageTitle = `${title} | تغطية موحدة للأحداث | ${this.siteNameArabic}`;
+    const pageDesc = summary || `تغطية شاملة وموحدة لحدث: ${title} من مصادر إخبارية متعددة وموثقة.`;
+    const canonicalUrl = buildAbsoluteUrl(`/story/${slug}`);
+    const ogImg = imageUrl ? buildAbsoluteUrl(imageUrl) : buildAbsoluteUrl('/og-default.jpg');
+
+    return {
+      title: pageTitle,
+      description: pageDesc,
+      keywords: `${this.siteNameArabic}, تغطية موحدة, قصة إخبارية, ${title}`,
+      canonicalUrl,
+      robots: 'index, follow, max-image-preview:large',
+      ogType: 'article',
+      ogTitle: pageTitle,
+      ogDescription: pageDesc,
+      ogImage: ogImg,
+      ogUrl: canonicalUrl,
+      ogSiteName: `${this.siteNameArabic} - ${this.siteName}`,
+      ogLocale: 'ar_SA',
+      twitterCard: 'summary_large_image',
+      twitterSite: '@naweayh_news',
+      twitterTitle: pageTitle,
+      twitterDescription: pageDesc,
+      twitterImage: ogImg,
+    };
+  }
+
   public generate404MetaTags(): SEOMetaOutput {
     return {
-      title: `الصفحة غير موجودة (404) | ${this.siteName}`,
+      title: `الصفحة غير موجودة (404) | ${this.siteNameArabic}`,
       description: 'عذراً، الصفحة التي تبحث عنها غير موجودة أو تم نقلها. تفضل بزيارة الصفحة الرئيسية لمتابعة أحدث الأخبار.',
-      keywords: '404, صفحة غير موجودة, OmniNews',
+      keywords: `404, صفحة غير موجودة, ${this.siteNameArabic}`,
       canonicalUrl: buildAbsoluteUrl('/404'),
       robots: 'noindex, nofollow',
       ogType: 'website',
-      ogTitle: `الصفحة غير موجودة (404) | ${this.siteName}`,
-      ogDescription: 'الصفحة غير موجودة على منصة OmniNews.',
+      ogTitle: `الصفحة غير موجودة (404) | ${this.siteNameArabic}`,
+      ogDescription: 'الصفحة غير موجودة على منصة أخبار نوعية.',
       ogImage: buildAbsoluteUrl('/og-default.jpg'),
       ogUrl: buildAbsoluteUrl('/404'),
-      ogSiteName: this.siteName,
+      ogSiteName: `${this.siteNameArabic} - ${this.siteName}`,
       ogLocale: 'ar_SA',
       twitterCard: 'summary',
-      twitterSite: '@OmniNewsAr',
-      twitterTitle: `الصفحة غير موجودة (404) | ${this.siteName}`,
+      twitterSite: '@naweayh_news',
+      twitterTitle: `الصفحة غير موجودة (404) | ${this.siteNameArabic}`,
       twitterDescription: 'الصفحة غير موجودة.',
       twitterImage: buildAbsoluteUrl('/og-default.jpg'),
+    };
+  }
+
+  public generateStaticPageMetaTags(page: 'privacy' | 'terms' | 'about' | 'contact' | 'editorial' | 'cookies' | 'corrections' | 'advertising'): SEOMetaOutput {
+    const pagesConfig: Record<string, { title: string; description: string; path: string }> = {
+      privacy: {
+        title: `سياسة الخصوصية وحماية البيانات | ${this.siteNameArabic}`,
+        description: 'سياسة الخصوصية وحماية البيانات المعتمدة في منصة أخبار نوعية (naweayh.xyz). نلتزم بأعلى معايير الأمان والشفافية وتوافق Google AdSense.',
+        path: '/privacy-policy',
+      },
+      terms: {
+        title: `شروط الاستخدام والخدمة | ${this.siteNameArabic}`,
+        description: 'شروط استخدام منصة أخبار نوعية، حقوق الملكية الفكرية، ونسب المصادر الإخبارية المعتمدة والاستخدام العادل.',
+        path: '/terms',
+      },
+      about: {
+        title: `من نحن ورؤيتنا التحريرية | ${this.siteNameArabic}`,
+        description: 'تعرف على منصة أخبار نوعية (Naw3iya News)، المنصة الإخبارية العربية الذكية الأولى لتغطية أخبار اليمن والعالم العربي والعالم بمصداقية E-E-A-T.',
+        path: '/about',
+      },
+      contact: {
+        title: `اتصل بنا وتواصل مع هيئة التحرير | ${this.siteNameArabic}`,
+        description: 'تواصل مع هيئة تحرير منصة أخبار نوعية للملاحظات أو الاقتراحات أو طلبات تصحيح الأخبار وبيانات الصحافة.',
+        path: '/contact',
+      },
+      editorial: {
+        title: `السياسة التحريرية ومعايير التدقيق الصحفي (E-E-A-T) | ${this.siteNameArabic}`,
+        description: 'المعايير الصحفية والسياسة التحريرية المتبعة في منصة أخبار نوعية للتحقق من المصادر ومكافحة التضليل وحظر الأخبار المختلقة.',
+        path: '/editorial-policy',
+      },
+      cookies: {
+        title: `سياسة ملفات تعريف الارتباط (Cookie Policy) | ${this.siteNameArabic}`,
+        description: 'سياسة ملفات تعريف الارتباط وكيفية استخدام الكوكيز وتقنيات التتبع المعتمدة لدى منصة أخبار نوعية وشركاء الإعلانات.',
+        path: '/cookie-policy',
+      },
+      corrections: {
+        title: `سياسة التصحيح والشفافية الصحفية | ${this.siteNameArabic}`,
+        description: 'التزام منصة أخبار نوعية بالتصحيح السريع والشفاف لأي أخطاء واقعية وكيفية تقديم طلبات تصحيح الأخبار.',
+        path: '/corrections',
+      },
+      advertising: {
+        title: `سياسة الإعلانات والرعاية التجارية | ${this.siteNameArabic}`,
+        description: 'معايير الإعلانات وسياسة الفصل التام بين التحرير الصحفي والإعلانات التجارية والرعاية في منصة أخبار نوعية.',
+        path: '/advertising-policy',
+      },
+    };
+
+    const cfg = pagesConfig[page] || pagesConfig.about;
+    const canonicalUrl = buildAbsoluteUrl(cfg.path);
+    const ogImage = buildAbsoluteUrl('/og-default.jpg');
+
+    return {
+      title: cfg.title,
+      description: cfg.description,
+      keywords: `${this.siteNameArabic}, ${cfg.title}, صحافة, اليمن, أخبار`,
+      canonicalUrl,
+      robots: 'index, follow, max-image-preview:large',
+      ogType: 'website',
+      ogTitle: cfg.title,
+      ogDescription: cfg.description,
+      ogImage,
+      ogUrl: canonicalUrl,
+      ogSiteName: `${this.siteNameArabic} - ${this.siteName}`,
+      ogLocale: 'ar_SA',
+      twitterCard: 'summary_large_image',
+      twitterSite: '@naweayh_news',
+      twitterTitle: cfg.title,
+      twitterDescription: cfg.description,
+      twitterImage: ogImage,
     };
   }
 
@@ -272,7 +391,7 @@ export class SEOEngineService {
       },
       publisher: {
         '@type': 'NewsMediaOrganization',
-        name: this.siteName,
+        name: `${this.siteNameArabic} — ${this.siteName}`,
         url: buildAbsoluteUrl('/'),
         logo: {
           '@type': 'ImageObject',
@@ -281,8 +400,8 @@ export class SEOEngineService {
           height: 60,
         },
         sameAs: [
-          'https://x.com/OmniNewsAr',
-          'https://facebook.com/OmniNewsAr',
+          'https://x.com/naweayh_news',
+          'https://facebook.com/naweayh.news',
         ],
       },
       articleSection: article.category || 'أخبار عامة',
@@ -363,14 +482,14 @@ export class SEOEngineService {
     return {
       '@context': 'https://schema.org',
       '@type': 'NewsMediaOrganization',
-      name: this.siteName,
-      alternateName: 'أخبار نوعية — Naw3iya News',
+      name: `${this.siteNameArabic} — ${this.siteName}`,
+      alternateName: 'Naw3iya News',
       url: buildAbsoluteUrl('/'),
       logo: buildAbsoluteUrl('/logo.png'),
       publishingPrinciples: buildAbsoluteUrl('/editorial-guidelines'),
       sameAs: [
-        'https://x.com/OmniNewsAr',
-        'https://facebook.com/OmniNewsAr',
+        'https://x.com/naweayh_news',
+        'https://facebook.com/naweayh.news',
       ],
       contactPoint: {
         '@type': 'ContactPoint',
@@ -404,16 +523,18 @@ export class SEOEngineService {
    * 3. Google News XML Sitemap Generator (sitemap-news.xml)
    * Follows Google News sitemap guidelines (recent articles within last 48-72h)
    */
-  public generateNewsSitemapXML(): string {
-    const articles = articlesRepository.getAll();
+  public generateNewsSitemapXML(providedArticles?: NewsArticle[]): string {
+    const articles = providedArticles && providedArticles.length > 0
+      ? providedArticles
+      : articlesRepository.getAll();
     const twoDaysAgo = Date.now() - 48 * 60 * 60 * 1000;
 
-    // Filter indexable recent articles (prefer last 48h, fallback to latest 50 articles)
+    // Filter indexable recent articles (prefer last 48h, fallback to latest articles)
     let recentArticles = articles.filter((a) => new Date(a.publishDate).getTime() >= twoDaysAgo);
     if (recentArticles.length === 0) {
       recentArticles = [...articles]
         .sort((a, b) => new Date(b.publishDate).getTime() - new Date(a.publishDate).getTime())
-        .slice(0, 50);
+        .slice(0, 100);
     }
 
     const xmlItems = recentArticles
@@ -437,7 +558,7 @@ export class SEOEngineService {
     <loc>${buildArticleCanonicalUrl(art.slug || art.id)}</loc>
     <news:news>
       <news:publication>
-        <news:name>${this.siteName}</news:name>
+        <news:name>${this.siteNameArabic}</news:name>
         <news:language>${art.language === 'en' ? 'en' : 'ar'}</news:language>
       </news:publication>
       <news:publication_date>${pubDateISO}</news:publication_date>
@@ -462,9 +583,18 @@ ${xmlItems}
     const nowISO = new Date().toISOString();
     const staticRoutes = [
       { path: '/', priority: '1.0', changefreq: 'hourly' },
+      { path: '/topics', priority: '0.8', changefreq: 'daily' },
       { path: '/saved', priority: '0.5', changefreq: 'daily' },
       { path: '/my-feed', priority: '0.7', changefreq: 'hourly' },
-      { path: '/topics', priority: '0.8', changefreq: 'daily' },
+      { path: '/privacy-policy', priority: '0.5', changefreq: 'monthly' },
+      { path: '/terms', priority: '0.5', changefreq: 'monthly' },
+      { path: '/about', priority: '0.6', changefreq: 'monthly' },
+      { path: '/contact', priority: '0.6', changefreq: 'monthly' },
+      { path: '/editorial-policy', priority: '0.6', changefreq: 'monthly' },
+      { path: '/editorial-guidelines', priority: '0.6', changefreq: 'monthly' },
+      { path: '/cookie-policy', priority: '0.5', changefreq: 'monthly' },
+      { path: '/corrections', priority: '0.6', changefreq: 'monthly' },
+      { path: '/advertising-policy', priority: '0.5', changefreq: 'monthly' },
     ];
 
     const xmlItems = staticRoutes
@@ -487,9 +617,11 @@ ${xmlItems}
   /**
    * 5. Categories Sitemap Generator (sitemap-categories.xml)
    */
-  public generateCategoriesSitemapXML(): string {
+  public generateCategoriesSitemapXML(providedCategories?: string[]): string {
     const nowISO = new Date().toISOString();
-    const categories = NEWS_CATEGORIES.filter((c) => c !== 'الكل');
+    const categories = (providedCategories && providedCategories.length > 0)
+      ? providedCategories.filter((c) => c !== 'الكل')
+      : NEWS_CATEGORIES.filter((c) => c !== 'الكل');
 
     const xmlItems = categories
       .map(
@@ -511,21 +643,26 @@ ${xmlItems}
   /**
    * 6. Sources Sitemap Generator (sitemap-sources.xml)
    */
-  public generateSourcesSitemapXML(): string {
+  public generateSourcesSitemapXML(providedSources?: string[]): string {
     const nowISO = new Date().toISOString();
     const sourceNames = new Set<string>();
 
-    // 1. Sources from repository
-    for (const src of sourcesRepository.getAll()) {
-      if (src.name) sourceNames.add(src.name);
-    }
-
-    // 2. Sources dynamically present in ingested articles
-    const articles = articlesRepository.getAll();
-    for (const art of articles) {
-      if (art.sources && Array.isArray(art.sources)) {
-        for (const s of art.sources) {
-          if (s.name) sourceNames.add(s.name);
+    if (providedSources && providedSources.length > 0) {
+      for (const s of providedSources) {
+        if (s) sourceNames.add(s);
+      }
+    } else {
+      // Sources from repository
+      for (const src of sourcesRepository.getAll()) {
+        if (src.name) sourceNames.add(src.name);
+      }
+      // Sources dynamically present in ingested articles
+      const articles = articlesRepository.getAll();
+      for (const art of articles) {
+        if (art.sources && Array.isArray(art.sources)) {
+          for (const s of art.sources) {
+            if (s.name) sourceNames.add(s.name);
+          }
         }
       }
     }
@@ -550,8 +687,10 @@ ${xmlItems}
   /**
    * 7. Image XML Sitemap Generator (sitemap-images.xml)
    */
-  public generateImageSitemapXML(): string {
-    const articles = articlesRepository.getAll();
+  public generateImageSitemapXML(providedArticles?: NewsArticle[]): string {
+    const articles = providedArticles && providedArticles.length > 0
+      ? providedArticles
+      : articlesRepository.getAll();
 
     const xmlItems = articles
       .map((art) => {
@@ -583,37 +722,8 @@ ${xmlItems}
   }
 
   /**
-   * 8. Video XML Sitemap Generator (sitemap-videos.xml)
-   */
-  public generateVideoSitemapXML(): string {
-    const articles = articlesRepository.getAll().filter((a) => a.videoUrl);
-
-    const xmlItems = articles
-      .map((art) => {
-        const pubDateISO = new Date(art.publishDate).toISOString();
-        return `  <url>
-    <loc>${buildArticleCanonicalUrl(art.slug || art.id)}</loc>
-    <video:video>
-      <video:thumbnail_loc>${art.mainImage}</video:thumbnail_loc>
-      <video:title><![CDATA[${art.title}]]></video:title>
-      <video:description><![CDATA[${art.summary}]]></video:description>
-      <video:content_loc>${art.videoUrl}</video:content_loc>
-      <video:publication_date>${pubDateISO}</video:publication_date>
-      <video:family_friendly>yes</video:family_friendly>
-    </video:video>
-  </url>`;
-      })
-      .join('\n');
-
-    return `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
-        xmlns:video="http://www.google.com/schemas/sitemap-video/1.1">
-${xmlItems}
-</urlset>`;
-  }
-
-  /**
-   * 9. Master Sitemap Index (sitemap.xml)
+   * 8. Master Sitemap Index (sitemap.xml)
+   * Strictly indexable active sitemaps (no broken/empty video sitemap)
    */
   public generateMasterSitemapXML(): string {
     const nowISO = new Date().toISOString();
@@ -639,18 +749,14 @@ ${xmlItems}
     <loc>${buildAbsoluteUrl('/sitemap-images.xml')}</loc>
     <lastmod>${nowISO}</lastmod>
   </sitemap>
-  <sitemap>
-    <loc>${buildAbsoluteUrl('/sitemap-videos.xml')}</loc>
-    <lastmod>${nowISO}</lastmod>
-  </sitemap>
 </sitemapindex>`;
   }
 
   /**
-   * 10. RSS 2.0 Feed Generator (rss.xml)
+   * 9. RSS 2.0 Feed Generator (rss.xml)
    */
-  public generateRSSFeedXML(): string {
-    const articles = articlesRepository.getAll().slice(0, 50);
+  public generateRSSFeedXML(providedArticles?: NewsArticle[]): string {
+    const articles = (providedArticles && providedArticles.length > 0 ? providedArticles : articlesRepository.getAll()).slice(0, 50);
 
     const itemsXml = articles
       .map((art) => {
@@ -676,7 +782,7 @@ ${xmlItems}
      xmlns:atom="http://www.w3.org/2005/Atom"
      xmlns:media="http://search.yahoo.com/mrss/">
   <channel>
-    <title>${this.siteName} — ${this.siteTagline}</title>
+    <title>${this.siteNameArabic} (${this.siteName}) — ${this.siteTagline}</title>
     <link>${buildAbsoluteUrl('/')}</link>
     <description>خلاصة الأخبار الفورية والتحليلات المستندة إلى الذكاء الاصطناعي — الأخبار كما تستحق أن تُقرأ</description>
     <language>ar-SA</language>
@@ -687,7 +793,7 @@ ${itemsXml}
   }
 
   /**
-   * 11. Robots.txt Generator
+   * 10. Robots.txt Generator
    */
   public generateRobotsTxt(): string {
     return `User-agent: *
@@ -697,13 +803,21 @@ Allow: /category/
 Allow: /source/
 Allow: /topic/
 Allow: /story/
+Allow: /privacy-policy
+Allow: /terms
+Allow: /about
+Allow: /contact
+Allow: /editorial-policy
+Allow: /editorial-guidelines
+Allow: /cookie-policy
+Allow: /corrections
+Allow: /advertising-policy
 Allow: /sitemap.xml
 Allow: /sitemap-news.xml
 Allow: /sitemap-pages.xml
 Allow: /sitemap-categories.xml
 Allow: /sitemap-sources.xml
 Allow: /sitemap-images.xml
-Allow: /sitemap-videos.xml
 Allow: /rss.xml
 Allow: /feed.xml
 
@@ -715,22 +829,31 @@ Disallow: /private/
 Disallow: /dashboard/
 Disallow: /reports/
 Disallow: /projects/
+Disallow: /search
+Disallow: /search?*
 
 User-agent: Googlebot
 Allow: /
 Allow: /news/
 Allow: /category/
 Allow: /source/
+Disallow: /admin/
+Disallow: /api/
+Disallow: /search
 
 User-agent: Googlebot-News
 Allow: /
 Allow: /news/
+Disallow: /admin/
+Disallow: /api/
 
 User-agent: Bingbot
 Allow: /
 Allow: /news/
 Allow: /category/
 Allow: /source/
+Disallow: /admin/
+Disallow: /api/
 
 User-agent: Twitterbot
 Allow: /
